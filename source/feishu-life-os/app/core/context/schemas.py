@@ -43,7 +43,15 @@ class CompiledContext(BaseModel):
 
     def provider_request(self, *, max_bytes: int) -> dict[str, Any]:
         from app.core.context.budget import fit_provider_request
+        from app.core.context.render import render_provider_capsules
 
         request = self.legacy_pack.model_dump(mode="json")
-        request["context_v2"] = self.v2_pack.model_dump(mode="json")
+        context_v2 = self.v2_pack.model_dump(mode="json")
+        context_v2["capsules"] = render_provider_capsules(
+            context_v2,
+            raw_text=self.legacy_pack.raw_text,
+            stage="provider_request",
+        )
+        context_v2.setdefault("context_trace", {})["capsule_render_policy"] = "provider_compact_v1"
+        request["context_v2"] = context_v2
         return fit_provider_request(request, max_bytes=max_bytes)

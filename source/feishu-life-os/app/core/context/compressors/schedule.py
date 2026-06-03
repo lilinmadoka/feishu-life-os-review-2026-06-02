@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.core.context.budget import estimate_tokens, truncate_text
+from app.core.context.render import should_run_schedule_compressor
 from app.core.context.schemas import ContextCapsule
 from app.core.context_builder import AgentContextPack
 from app.core.relative_time import effective_day_start
@@ -20,6 +21,8 @@ class ScheduleAvailabilityCompressor:
         self.day_end = day_end
 
     def compress(self, *, store: StateStore, legacy_pack: AgentContextPack, purpose: str) -> list[ContextCapsule]:
+        if not should_run_schedule_compressor(raw_text=legacy_pack.raw_text, purpose=purpose):
+            return []
         now = _parse_dt(legacy_pack.now)
         if now is None:
             return []

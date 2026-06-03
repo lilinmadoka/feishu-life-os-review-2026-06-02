@@ -25,6 +25,7 @@ source/feishu-life-os/
 - `app/core/providers.py`: proposal-first behavior for complex planning requests.
 - `app/core/context_builder.py`: proposal context summaries.
 - `app/core/context/`: Context Compiler, v2 context schemas, budget trimming, and first compressor set.
+- `app/core/context/render.py`: provider capsule render policy for compact, stage-aware context visibility.
 - `app/core/agent_response_schema.json`: structured provider response schema with optional proposal.
 - `tests/`: unit and regression tests, including planning-layer coverage.
 - `scripts/`: development, validation, local gateway, and dry-run helper scripts.
@@ -64,6 +65,8 @@ source/feishu-life-os/
 - Wired `CoreAgentOrchestrator` to include `context_v2` while keeping root `context_schema_version=1`.
 - Wired provider intent/entity context extraction to consume compact `context_capsules`.
 - Added tests for v1/v2 request compatibility, safe confirmation summaries, active plan draft summaries, schedule busy/free facts, and v2-first budget trimming.
+- Added a provider render/policy layer: confirmation capsules are summary-only, plan draft facts are capped, and schedule busy/free facts are exposed only for availability/scheduling contexts.
+- Added relevance gating so schedule availability compression does not run for ordinary confirm or smalltalk messages.
 
 ## Validation Record
 
@@ -74,10 +77,10 @@ Latest local checks before this export:
 92 passed
 
 .\.venv\Scripts\python.exe -m pytest tests/test_context_compiler.py -q
-5 passed
+9 passed
 
 .\.venv\Scripts\python.exe -m pytest -q
-154 passed
+158 passed
 
 .\.venv\Scripts\python.exe -m ruff check app tests
 All checks passed!

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.context import ContextCompiler
 from app.core.context.budget import fit_provider_request, json_size
+from app.core.providers import OpenAICompatibleChatProvider
 from app.core.relative_time import effective_day_start
 from app.core.schemas import (
     AgentToolCall,
@@ -82,10 +83,43 @@ def test_pending_confirmation_capsule_is_summary_only(tmp_path):
     dumped = json.dumps(request, ensure_ascii=False)
     capsule = capsule_by_domain(request, "confirmation")
 
-    assert capsule["facts"][0]["confirmation_id"].startswith("conf_")
-    assert capsule["facts"][0]["candidate_titles"] == ["Write exercise set"]
+    assert "facts" not in capsule
+    assert "Write exercise set" in capsule["summary"]
     assert "proposed_tool_calls_json" not in dumped
     assert "x" * 100 not in dumped
+
+
+def test_ordinary_confirm_includes_confirmation_but_no_schedule_capsule(tmp_path):
+    store = build_store(tmp_path)
+    run = store.create_agent_run(capture_id=None, provider="test", model=None, input_json={})
+    store.create_confirmation(
+        agent_run_id=run.id,
+        confirmation_type="create_candidates",
+        proposed_tool_calls_json=[
+            AgentToolCall(
+                tool_name="create_task_candidate",
+                risk_level=RiskLevel.medium,
+                requires_confirmation=True,
+                arguments={"title": "Write report"},
+            ).model_dump(mode="json")
+        ],
+        sender_id="ou_test",
+    )
+    store.create_schedule_block(
+        {
+            "title": "Fixed class",
+            "recurrence_rule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+            "start_time": "08:00",
+            "end_time": "10:00",
+            "timezone": "Asia/Shanghai",
+        }
+    )
+
+    request = compile_request(store, "confirm")
+    domains = {capsule["domain"] for capsule in request["context_v2"]["capsules"]}
+
+    assert "confirmation" in domains
+    assert "schedule" not in domains
 
 
 def test_active_plan_draft_capsule_contains_proposal_summary(tmp_path):
@@ -146,6 +180,81 @@ def test_schedule_availability_capsule_includes_events_and_byday_blocks(tmp_path
     assert "Math class" in busy_titles
     assert "Fixed family time" in busy_titles
     assert target_fact["free_count"] >= 1
+
+
+def test_availability_query_exposes_compact_schedule_facts_to_provider_context(tmp_path):
+    store = build_store(tmp_path)
+    base = effective_day_start(TZ)
+    store.create_calendar_event(
+        {
+            "title": "Dentist appointment",
+            "start_at": base.replace(hour=15, minute=0),
+            "end_at": base.replace(hour=16, minute=0),
+        }
+    )
+    request = compile_request(store, "am I free this afternoon")
+    provider = OpenAICompatibleChatProvider(base_url="http://127.0.0.1:9/v1", model="test", response_format="none")
+
+    context = provider._entity_context(request, "query_availability")
+    capsule = next(item for item in context["context_capsules"] if item["domain"] == "schedule")
+    today_fact = next(item for item in capsule["facts"] if item["date"] == base.date().isoformat())
+
+    assert today_fact["busy"]
+    assert today_fact["free"]
+    assert "Dentist appointment" in " ".join(item.get("title", "") for item in today_fact["busy"])
+
+
+def test_schedule_facts_are_visible_for_allowed_entity_intent():
+    provider = OpenAICompatibleChatProvider(base_url="http://127.0.0.1:9/v1", model="test", response_format="none")
+    request = {
+        "raw_text": "book a meeting tomorrow",
+        "context_v2": {
+            "capsules": [
+                {
+                    "capsule_id": "cap_schedule_availability_7d",
+                    "domain": "schedule",
+                    "purpose": "general",
+                    "summary": "Availability summary",
+                    "facts": [
+                        {
+                            "date": "2026-06-04",
+                            "weekday": "TH",
+                            "busy_count": 1,
+                            "free_count": 2,
+                            "busy": [{"start": "2026-06-04T10:00:00+08:00", "end": "2026-06-04T11:00:00+08:00", "title": "Class"}],
+                            "free": [{"start": "2026-06-04T11:00:00+08:00", "end": "2026-06-04T12:00:00+08:00"}],
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+    intent_context = provider._intent_context(request)
+    entity_context = provider._entity_context(request, "create_calendar_event")
+
+    assert intent_context["context_capsules"] == []
+    assert entity_context["context_capsules"][0]["facts"][0]["busy"][0]["title"] == "Class"
+
+
+def test_non_schedule_smalltalk_keeps_context_v2_small(tmp_path):
+    store = build_store(tmp_path)
+    for index in range(20):
+        store.create_schedule_block(
+            {
+                "title": f"Fixed block {index}",
+                "recurrence_rule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+                "start_time": "08:00",
+                "end_time": "09:00",
+                "timezone": "Asia/Shanghai",
+            }
+        )
+
+    request = compile_request(store, "hello")
+    domains = {capsule["domain"] for capsule in request["context_v2"]["capsules"]}
+
+    assert "schedule" not in domains
+    assert json_size(request["context_v2"]) < 2_500
 
 
 def test_provider_request_budget_trims_v2_before_legacy():

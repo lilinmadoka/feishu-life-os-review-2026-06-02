@@ -42,6 +42,7 @@ It intentionally excludes real environment files, local databases, attachments, 
 - `RiskPolicy` and confirmation cards remain the write boundary.
 - `ToolRouter` is kept to confirmed concrete operations and rejects planning-only direct tools.
 - `ContextCompiler` is now implemented as a dual-track v1/v2 context layer with provider-readable capsules.
+- Context capsule rendering now applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
 
 ## Latest Local Validation
 
@@ -57,8 +58,8 @@ python -m ruff check app tests
 Results:
 
 ```text
-tests/test_context_compiler.py: 5 passed
+tests/test_context_compiler.py: 9 passed
 tests/test_core_agent_v2.py: 92 passed
-full pytest suite: 154 passed
+full pytest suite: 158 passed
 ruff check app tests: passed
 ```
