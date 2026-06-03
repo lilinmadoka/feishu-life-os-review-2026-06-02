@@ -20,7 +20,8 @@ E:\learning\基于飞书做的助理系统\feishu-life-os
 8. [Security, privacy, and risks](docs/07_SECURITY_AND_RISKS.md)
 9. [Review questions](docs/08_REVIEW_QUESTIONS.md)
 10. [Context compiler architecture proposal](docs/09_CONTEXT_COMPILER_ARCHITECTURE.md)
-11. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
+11. [Visual observability architecture proposal](docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md)
+12. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
 
 ## Source Snapshot
 
@@ -43,6 +44,7 @@ It intentionally excludes real environment files, local databases, attachments, 
 - `ToolRouter` is kept to confirmed concrete operations and rejects planning-only direct tools.
 - `ContextCompiler` is now implemented as a dual-track v1/v2 context layer with provider-readable capsules.
 - Context capsule rendering now applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
+- `Visual Observability` is proposed as a旁路式 dynamic trace layer for dense progress-bar-style monitoring, context lens inspection, state diffs, and replayable workflow traces.
 
 ## Latest Local Validation
 
