@@ -29,7 +29,7 @@ source/feishu-life-os/
 - `app/core/agent_response_schema.json`: structured provider response schema with optional proposal.
 - `tests/`: unit and regression tests, including planning-layer coverage.
 - `scripts/`: development, validation, local gateway, and dry-run helper scripts.
-- `docs/`: project documentation from the source workspace.
+- `docs/`: project documentation from the source workspace, including the Context Compiler and Visual Observability architecture proposals.
 - `validation/`: non-private validation summaries.
 - `README.md`, `pyproject.toml`, `Makefile`, `railway.json`, `.gitignore`, `.env.example`.
 
@@ -67,6 +67,15 @@ source/feishu-life-os/
 - Added tests for v1/v2 request compatibility, safe confirmation summaries, active plan draft summaries, schedule busy/free facts, and v2-first budget trimming.
 - Added a provider render/policy layer: confirmation capsules are summary-only, plan draft facts are capped, and schedule busy/free facts are exposed only for availability/scheduling contexts.
 - Added relevance gating so schedule availability compression does not run for ordinary confirm or smalltalk messages.
+
+## Visual Observability Proposal In This Snapshot
+
+- Added `docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md` at the review package root.
+- Added `source/feishu-life-os/docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md` for Codex implementation guidance inside the source snapshot.
+- Proposed a旁路式 dynamic trace layer with Trace/Span/Event/Artifact/StateDiff records.
+- Proposed dense progress-bar-style monitoring views: trace list, KPI strip, multi-lane timeline, Context Lens, Policy Gate, Planner/PlanDraft, Tool/Confirmation/StateDiff, Feishu/Reminder panels.
+- Proposed Phase 1 implementation scope: schema, SQLite trace store, no-op/default emitter, orchestrator instrumentation, redaction, minimal read-only API routes, and tests.
+- Proposed later phases for Context Lens instrumentation, local dashboard, live stream, replay, graph, metrics, and optional exporter support.
 
 ## Validation Record
 
