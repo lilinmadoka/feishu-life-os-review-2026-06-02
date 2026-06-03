@@ -19,7 +19,8 @@ E:\learning\基于飞书做的助理系统\feishu-life-os
 7. [Testing and build record](docs/06_TESTING_AND_BUILD_RECORD.md)
 8. [Security, privacy, and risks](docs/07_SECURITY_AND_RISKS.md)
 9. [Review questions](docs/08_REVIEW_QUESTIONS.md)
-10. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
+10. [Context compiler architecture proposal](docs/09_CONTEXT_COMPILER_ARCHITECTURE.md)
+11. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
 
 ## Source Snapshot
 
@@ -40,6 +41,7 @@ It intentionally excludes real environment files, local databases, attachments, 
 - `PlannerService` persists and refines proposal state through existing `PlanDraft` storage.
 - `RiskPolicy` and confirmation cards remain the write boundary.
 - `ToolRouter` is kept to confirmed concrete operations and rejects planning-only direct tools.
+- `ContextCompiler` is proposed as the next architecture step for provider-aware context compression and traceable context capsules.
 
 ## Latest Local Validation
 
