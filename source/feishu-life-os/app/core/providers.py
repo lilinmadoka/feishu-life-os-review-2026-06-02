@@ -1015,6 +1015,7 @@ class OpenAICompatibleChatProvider:
             "recent_assistant_turns": self._compact_assistant_turns(request.get("recent_assistant_turns"), limit=2),
             "pending_confirmations": self._compact_pending_confirmations(request.get("pending_confirmations"), limit=2),
             "active_plan_drafts": self._compact_items(request.get("active_plan_drafts"), limit=3),
+            "context_capsules": self._compact_context_capsules(request.get("context_v2"), limit=5),
             "long_term_tasks": self._compact_items(request.get("long_term_tasks"), limit=5),
             "available_intents": request.get("available_intents") or [],
         }
@@ -1029,6 +1030,7 @@ class OpenAICompatibleChatProvider:
             "recent_assistant_turns": self._compact_assistant_turns(request.get("recent_assistant_turns"), limit=2),
             "pending_confirmations": self._compact_pending_confirmations(request.get("pending_confirmations"), limit=3),
             "active_plan_drafts": self._compact_items(request.get("active_plan_drafts"), limit=3),
+            "context_capsules": self._compact_context_capsules(request.get("context_v2"), limit=6),
             "long_term_tasks": self._compact_items(request.get("long_term_tasks"), limit=8),
         }
         if intent_name in {
@@ -1204,6 +1206,46 @@ class OpenAICompatibleChatProvider:
                 }
             )
         return confirmations
+
+    def _compact_context_capsules(self, value: Any, *, limit: int) -> list[dict[str, Any]]:
+        if not isinstance(value, dict):
+            return []
+        raw_capsules = value.get("capsules")
+        if not isinstance(raw_capsules, list):
+            return []
+        capsules: list[dict[str, Any]] = []
+        allowed = (
+            "capsule_id",
+            "domain",
+            "purpose",
+            "summary",
+            "missing_info",
+            "decision_hints",
+            "forbidden_actions",
+            "evidence_refs",
+            "confidence",
+            "freshness",
+        )
+        for item in raw_capsules[:limit]:
+            if not isinstance(item, dict):
+                continue
+            compact = {key: item.get(key) for key in allowed if item.get(key) not in (None, "", [])}
+            if "summary" in compact:
+                compact["summary"] = self._short_text(compact["summary"], 240)
+            if "missing_info" in compact and isinstance(compact["missing_info"], list):
+                compact["missing_info"] = [self._short_text(text, 80) for text in compact["missing_info"][:6]]
+            if "decision_hints" in compact and isinstance(compact["decision_hints"], list):
+                compact["decision_hints"] = [self._short_text(text, 120) for text in compact["decision_hints"][:4]]
+            if "forbidden_actions" in compact and isinstance(compact["forbidden_actions"], list):
+                compact["forbidden_actions"] = [self._short_text(text, 120) for text in compact["forbidden_actions"][:4]]
+            if "evidence_refs" in compact and isinstance(compact["evidence_refs"], list):
+                compact["evidence_refs"] = [
+                    {key: ref.get(key) for key in ("kind", "id", "field") if isinstance(ref, dict) and ref.get(key)}
+                    for ref in compact["evidence_refs"][:5]
+                    if isinstance(ref, dict)
+                ]
+            capsules.append(compact)
+        return capsules
 
     def _compact_items(self, value: Any, *, limit: int) -> list[dict[str, Any]]:
         if not isinstance(value, list):
@@ -1488,6 +1530,7 @@ class OpenAICompatibleChatProvider:
             "schedule_blocks",
             "available_intents",
             "context_limits",
+            "context_v2",
         }
         return {key: request.get(key) for key in allowed if key in request}
 

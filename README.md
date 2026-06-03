@@ -41,7 +41,7 @@ It intentionally excludes real environment files, local databases, attachments, 
 - `PlannerService` persists and refines proposal state through existing `PlanDraft` storage.
 - `RiskPolicy` and confirmation cards remain the write boundary.
 - `ToolRouter` is kept to confirmed concrete operations and rejects planning-only direct tools.
-- `ContextCompiler` is proposed as the next architecture step for provider-aware context compression and traceable context capsules.
+- `ContextCompiler` is now implemented as a dual-track v1/v2 context layer with provider-readable capsules.
 
 ## Latest Local Validation
 
@@ -49,6 +49,7 @@ Executed in the source workspace before export:
 
 ```text
 python -m pytest tests/test_core_agent_v2.py -q
+python -m pytest tests/test_context_compiler.py -q
 python -m pytest -q
 python -m ruff check app tests
 ```
@@ -56,7 +57,8 @@ python -m ruff check app tests
 Results:
 
 ```text
-tests/test_core_agent_v2.py: 91 passed
-full pytest suite: 148 passed
+tests/test_context_compiler.py: 5 passed
+tests/test_core_agent_v2.py: 92 passed
+full pytest suite: 154 passed
 ruff check app tests: passed
 ```

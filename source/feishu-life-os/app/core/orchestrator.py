@@ -6,7 +6,7 @@ import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.core.context_builder import build_agent_context
+from app.core.context import ContextCompiler
 from app.core.feishu_native import FeishuNativeAdapter
 from app.core.planner import PlannerService
 from app.core.policy import PolicyViolation, RiskPolicy
@@ -31,6 +31,7 @@ class CoreAgentOrchestrator:
         self.router = ToolRouter(store, feishu, tz)
         self.planner = PlannerService(store, feishu, tz, self.router)
         self.policy = RiskPolicy()
+        self.context_compiler = ContextCompiler(store, tz)
 
     async def process_capture(self, capture_input: CaptureIn) -> OrchestratorResult:
         self.store.migrate()
@@ -143,7 +144,7 @@ class CoreAgentOrchestrator:
         )
 
     def _build_agent_request(self, capture: dict[str, Any]) -> dict[str, Any]:
-        return build_agent_context(self.store, capture, self.tz).model_dump(mode="json")
+        return self.context_compiler.compile(capture).provider_request(max_bytes=self.context_compiler.max_bytes)
 
     def _is_fallback_provider(self) -> bool:
         return self.provider.name in {"mock_provider", "rules_provider", "rules_fallback"}

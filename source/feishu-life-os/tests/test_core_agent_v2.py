@@ -849,6 +849,7 @@ def test_agent_context_pack_excludes_recursive_run_history(tmp_path):
     assert "capture" not in request
     assert len(dumped.encode("utf-8")) <= 12_000
     assert request["context_schema_version"] == 1
+    assert request["context_v2"]["context_schema_version"] == 2
     assert request["raw_text"] == "明天我都啥时间有空？"
 
 
@@ -1011,6 +1012,36 @@ def test_pending_confirmation_context_is_summary_only(tmp_path):
     assert "proposed_tool_calls_json" not in dumped
     assert "x" * 100 not in dumped
     assert len(dumped.encode("utf-8")) <= 12_000
+
+
+def test_provider_context_includes_compact_capsules():
+    provider = OpenAICompatibleChatProvider(base_url="http://127.0.0.1:9/v1", model="test", response_format="none")
+    request = {
+        "raw_text": "confirm",
+        "context_v2": {
+            "capsules": [
+                {
+                    "capsule_id": "cap_confirmation_pending",
+                    "domain": "confirmation",
+                    "purpose": "general",
+                    "summary": "There is one pending confirmation.",
+                    "facts": [{"large": "x" * 1000}],
+                    "missing_info": [],
+                    "decision_hints": ["Resolve latest pending confirmation."],
+                    "forbidden_actions": ["Do not create new items."],
+                    "evidence_refs": [{"kind": "confirmation", "id": "conf_test", "extra": "ignored"}],
+                    "confidence": 0.9,
+                    "freshness": "live",
+                }
+            ]
+        },
+    }
+
+    context = provider._intent_context(request)
+
+    assert context["context_capsules"][0]["domain"] == "confirmation"
+    assert "facts" not in context["context_capsules"][0]
+    assert context["context_capsules"][0]["evidence_refs"] == [{"kind": "confirmation", "id": "conf_test"}]
 
 
 def test_model_intent_create_task_maps_to_confirmation_candidate():
