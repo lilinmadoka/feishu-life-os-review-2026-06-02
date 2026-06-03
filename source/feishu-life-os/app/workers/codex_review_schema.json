@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "summary",
+    "proposed_actions",
+    "problems_found",
+    "confidence",
+    "should_change_existing_actions"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["ok", "needs_user_review", "system_issue"]
+    },
+    "summary": {"type": "string"},
+    "proposed_actions": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "problems_found": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "should_change_existing_actions": {"type": "boolean"}
+  }
+}

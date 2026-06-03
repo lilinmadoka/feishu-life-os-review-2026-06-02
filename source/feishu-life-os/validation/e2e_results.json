@@ -1,0 +1,389 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "scenario": "query_today",
+      "passed": true,
+      "reply": "今天没有任务或日程。",
+      "created_tasks": 0,
+      "created_events": 0
+    },
+    {
+      "scenario": "create_candidates",
+      "passed": true,
+      "reply": "我识别到 2 个候选，需要你确认：\n1. 日程：给小王补课\n2. 任务：把资料发家长\n回复“确认”后我再创建或修改。",
+      "confirmation_id": "conf_1af6ac4445a94a6b"
+    },
+    {
+      "scenario": "confirm_candidates",
+      "passed": true,
+      "reply": "已确认并创建 2 项：\n- calendar_event：给小王补课\n- action_item：把资料发家长",
+      "tool_runs": 4
+    },
+    {
+      "scenario": "update_calendar_event_requires_confirmation",
+      "passed": true,
+      "reply": "我识别到 1 个候选，需要你确认：\n1. 日程修改：小王补课\n回复“确认”后我再创建或修改。",
+      "confirmation_id": "conf_38e3cbeada8d4646"
+    },
+    {
+      "scenario": "schedule_block_candidates",
+      "passed": true,
+      "reply": "我识别到 1 个候选，需要你确认：\n1. 固定时间块：2 个固定时间块\n回复“确认”后我再创建或修改。",
+      "confirmation_id": "conf_1ef1d11f48fc4f46"
+    }
+  ],
+  "mock": {
+    "sent_texts": [
+      {
+        "receive_id": "ou_validation",
+        "text": "今天没有任务或日程。",
+        "mock": true
+      },
+      {
+        "receive_id": "ou_validation",
+        "text": "我识别到 2 个候选，需要你确认：\n1. 日程：给小王补课\n2. 任务：把资料发家长\n回复“确认”后我再创建或修改。",
+        "mock": true
+      },
+      {
+        "receive_id": "ou_validation",
+        "text": "已确认并创建 2 项：\n- calendar_event：给小王补课\n- action_item：把资料发家长",
+        "mock": true
+      },
+      {
+        "receive_id": "ou_validation",
+        "text": "我识别到 1 个候选，需要你确认：\n1. 日程修改：小王补课\n回复“确认”后我再创建或修改。",
+        "mock": true
+      },
+      {
+        "receive_id": "ou_validation",
+        "text": "我识别到 1 个候选，需要你确认：\n1. 固定时间块：2 个固定时间块\n回复“确认”后我再创建或修改。",
+        "mock": true
+      }
+    ],
+    "sent_cards": [
+      {
+        "receive_id": "ou_validation",
+        "card": {
+          "config": {
+            "wide_screen_mode": true
+          },
+          "header": {
+            "template": "blue",
+            "title": {
+              "tag": "plain_text",
+              "content": "私人助理确认"
+            }
+          },
+          "elements": [
+            {
+              "tag": "div",
+              "text": {
+                "tag": "lark_md",
+                "content": "我识别到 2 个候选，需要你确认：\n1. 日程：给小王补课\n2. 任务：把资料发家长\n回复“确认”后我再创建或修改。\n\n1. **日程**：给小王补课\n2. **任务**：把资料发家长"
+              }
+            },
+            {
+              "tag": "action",
+              "actions": [
+                {
+                  "tag": "button",
+                  "text": {
+                    "tag": "plain_text",
+                    "content": "确认"
+                  },
+                  "type": "primary",
+                  "value": {
+                    "action": "confirm",
+                    "confirmation_id": "conf_1af6ac4445a94a6b"
+                  }
+                },
+                {
+                  "tag": "button",
+                  "text": {
+                    "tag": "plain_text",
+                    "content": "取消"
+                  },
+                  "type": "default",
+                  "value": {
+                    "action": "cancel",
+                    "confirmation_id": "conf_1af6ac4445a94a6b"
+                  }
+                }
+              ]
+            }
+          ],
+          "_mvp_meta": {
+            "confirmation_id": "conf_1af6ac4445a94a6b",
+            "candidates": [
+              {
+                "type": "日程",
+                "title": "给小王补课",
+                "arguments": {
+                  "title": "给小王补课",
+                  "description": "明天下午3点给小王补课",
+                  "start_at": "2026-05-29T15:00:00+08:00",
+                  "end_at": "2026-05-29T16:00:00+08:00",
+                  "confidence": 0.9
+                },
+                "conflicts": []
+              },
+              {
+                "type": "任务",
+                "title": "把资料发家长",
+                "arguments": {
+                  "title": "把资料发家长",
+                  "description": "今晚把资料发家长",
+                  "due_at": "2026-05-28T21:00:00+08:00",
+                  "priority": "P1",
+                  "confidence": 0.85
+                }
+              }
+            ]
+          }
+        },
+        "card_id": "mock_card_1",
+        "mock": true
+      },
+      {
+        "receive_id": "ou_validation",
+        "card": {
+          "config": {
+            "wide_screen_mode": true
+          },
+          "header": {
+            "template": "blue",
+            "title": {
+              "tag": "plain_text",
+              "content": "私人助理确认"
+            }
+          },
+          "elements": [
+            {
+              "tag": "div",
+              "text": {
+                "tag": "lark_md",
+                "content": "我识别到 1 个候选，需要你确认：\n1. 日程修改：小王补课\n回复“确认”后我再创建或修改。\n\n1. **日程修改**：小王补课"
+              }
+            },
+            {
+              "tag": "action",
+              "actions": [
+                {
+                  "tag": "button",
+                  "text": {
+                    "tag": "plain_text",
+                    "content": "确认"
+                  },
+                  "type": "primary",
+                  "value": {
+                    "action": "confirm",
+                    "confirmation_id": "conf_38e3cbeada8d4646"
+                  }
+                },
+                {
+                  "tag": "button",
+                  "text": {
+                    "tag": "plain_text",
+                    "content": "取消"
+                  },
+                  "type": "default",
+                  "value": {
+                    "action": "cancel",
+                    "confirmation_id": "conf_38e3cbeada8d4646"
+                  }
+                }
+              ]
+            }
+          ],
+          "_mvp_meta": {
+            "confirmation_id": "conf_38e3cbeada8d4646",
+            "candidates": [
+              {
+                "type": "日程修改",
+                "title": "小王补课",
+                "arguments": {
+                  "query": "小王补课",
+                  "start_at": "2026-05-29T19:00:00+08:00",
+                  "end_at": "2026-05-29T20:00:00+08:00"
+                },
+                "conflicts": []
+              }
+            ]
+          }
+        },
+        "card_id": "mock_card_2",
+        "mock": true
+      },
+      {
+        "receive_id": "ou_validation",
+        "card": {
+          "config": {
+            "wide_screen_mode": true
+          },
+          "header": {
+            "template": "blue",
+            "title": {
+              "tag": "plain_text",
+              "content": "私人助理确认"
+            }
+          },
+          "elements": [
+            {
+              "tag": "div",
+              "text": {
+                "tag": "lark_md",
+                "content": "我识别到 1 个候选，需要你确认：\n1. 固定时间块：2 个固定时间块\n回复“确认”后我再创建或修改。\n\n1. **固定时间块**：2 个固定时间块"
+              }
+            },
+            {
+              "tag": "action",
+              "actions": [
+                {
+                  "tag": "button",
+                  "text": {
+                    "tag": "plain_text",
+                    "content": "确认"
+                  },
+                  "type": "primary",
+                  "value": {
+                    "action": "confirm",
+                    "confirmation_id": "conf_1ef1d11f48fc4f46"
+                  }
+                },
+                {
+                  "tag": "button",
+                  "text": {
+                    "tag": "plain_text",
+                    "content": "取消"
+                  },
+                  "type": "default",
+                  "value": {
+                    "action": "cancel",
+                    "confirmation_id": "conf_1ef1d11f48fc4f46"
+                  }
+                }
+              ]
+            }
+          ],
+          "_mvp_meta": {
+            "confirmation_id": "conf_1ef1d11f48fc4f46",
+            "candidates": [
+              {
+                "type": "固定时间块",
+                "title": "2 个固定时间块",
+                "arguments": {
+                  "blocks": [
+                    {
+                      "title": "固定上课",
+                      "recurrence_rule": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+                      "start_time": "19:00",
+                      "end_time": "21:00",
+                      "timezone": "Asia/Shanghai"
+                    },
+                    {
+                      "title": "实验课",
+                      "recurrence_rule": "FREQ=WEEKLY;BYDAY=TU",
+                      "start_time": "14:00",
+                      "end_time": "17:00",
+                      "timezone": "Asia/Shanghai"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "card_id": "mock_card_3",
+        "mock": true
+      }
+    ],
+    "synced_tasks": [
+      {
+        "status": "staged",
+        "task_guid": "mock_task_task_c93c4c07b5714c46",
+        "action_item": {
+          "id": "task_c93c4c07b5714c46",
+          "title": "把资料发家长",
+          "description": "今晚把资料发家长",
+          "status": "active",
+          "priority": "P1",
+          "due_at": "2026-05-28T21:00:00+08:00",
+          "estimated_minutes": null,
+          "project_id": null,
+          "person_id": null,
+          "source_capture_id": "cap2_f996735fb121458f",
+          "confidence": 0.85,
+          "created_at": "2026-05-28T08:12:16Z",
+          "updated_at": "2026-05-28T08:12:16Z"
+        },
+        "mock": true
+      }
+    ],
+    "synced_calendar_events": [
+      {
+        "status": "staged",
+        "event_id": "mock_event_cal_3b7b89ab365c4d4e",
+        "calendar_event": {
+          "id": "cal_3b7b89ab365c4d4e",
+          "title": "给小王补课",
+          "description": "明天下午3点给小王补课",
+          "start_at": "2026-05-29T15:00:00+08:00",
+          "end_at": "2026-05-29T16:00:00+08:00",
+          "location": null,
+          "status": "active",
+          "source_capture_id": "cap2_f996735fb121458f",
+          "feishu_event_id": null,
+          "confidence": 0.9,
+          "created_at": "2026-05-28T08:12:16Z",
+          "updated_at": "2026-05-28T08:12:16Z"
+        },
+        "mock": true
+      }
+    ],
+    "synced_audits": [
+      {
+        "status": "staged",
+        "audit_id": "mock_audit_1",
+        "payload": {
+          "confirmation_id": "conf_1af6ac4445a94a6b",
+          "confirmation_type": "create_candidates",
+          "created": [
+            {
+              "type": "calendar_event",
+              "id": "cal_3b7b89ab365c4d4e",
+              "title": "给小王补课",
+              "description": "明天下午3点给小王补课",
+              "start_at": "2026-05-29T15:00:00+08:00",
+              "end_at": "2026-05-29T16:00:00+08:00",
+              "location": null,
+              "status": "active",
+              "source_capture_id": "cap2_f996735fb121458f",
+              "feishu_event_id": null,
+              "confidence": 0.9,
+              "created_at": "2026-05-28T08:12:16Z",
+              "updated_at": "2026-05-28T08:12:16Z"
+            },
+            {
+              "type": "action_item",
+              "id": "task_c93c4c07b5714c46",
+              "title": "把资料发家长",
+              "description": "今晚把资料发家长",
+              "status": "active",
+              "priority": "P1",
+              "due_at": "2026-05-28T21:00:00+08:00",
+              "estimated_minutes": null,
+              "project_id": null,
+              "person_id": null,
+              "source_capture_id": "cap2_f996735fb121458f",
+              "confidence": 0.85,
+              "created_at": "2026-05-28T08:12:16Z",
+              "updated_at": "2026-05-28T08:12:16Z"
+            }
+          ]
+        },
+        "mock": true
+      }
+    ]
+  }
+}

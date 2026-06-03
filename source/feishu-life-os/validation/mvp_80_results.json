@@ -1,0 +1,322 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "scenario": "query_today_no_write",
+      "passed": true,
+      "reply": "今天没有任务或日程。"
+    },
+    {
+      "scenario": "candidate_card_contains_confirmation_id",
+      "passed": true,
+      "reply": "我识别到 2 个候选，需要你确认：\n回复“确认”后我再创建或修改。",
+      "confirmation_id": "conf_daa3a580d6bc40fb"
+    },
+    {
+      "scenario": "card_confirm_creates_task_and_calendar",
+      "passed": true,
+      "reply": "已确认并创建 2 项：\n- 日程：给小王补课 2026-05-29T15:00:00+08:00 - 2026-05-29T16:00:00+08:00\n- 任务：把资料发家长 2026-05-28T21:00:00+08:00",
+      "sync": [
+        {
+          "status": "staged",
+          "event_id": "mock_event_cal_b292b2059997447b",
+          "calendar_event": {
+            "id": "cal_b292b2059997447b",
+            "title": "给小王补课",
+            "description": "明天下午3点给小王补课",
+            "start_at": "2026-05-29T15:00:00+08:00",
+            "end_at": "2026-05-29T16:00:00+08:00",
+            "location": null,
+            "status": "active",
+            "source_capture_id": "cap2_673611c4a17f4bd5",
+            "feishu_event_id": null,
+            "confidence": 0.9,
+            "created_at": "2026-05-28T11:42:47Z",
+            "updated_at": "2026-05-28T11:42:47Z"
+          },
+          "mock": true
+        },
+        {
+          "status": "staged",
+          "task_guid": "mock_task_task_5862bc9f3c3c4f4d",
+          "action_item": {
+            "id": "task_5862bc9f3c3c4f4d",
+            "title": "把资料发家长",
+            "description": "今晚把资料发家长",
+            "status": "active",
+            "priority": "P1",
+            "due_at": "2026-05-28T21:00:00+08:00",
+            "estimated_minutes": null,
+            "project_id": null,
+            "person_id": null,
+            "source_capture_id": "cap2_673611c4a17f4bd5",
+            "confidence": 0.85,
+            "created_at": "2026-05-28T11:42:47Z",
+            "updated_at": "2026-05-28T11:42:47Z"
+          },
+          "mock": true
+        },
+        {
+          "status": "staged",
+          "audit_id": "mock_audit_1",
+          "payload": {
+            "confirmation_id": "conf_daa3a580d6bc40fb",
+            "confirmation_type": "create_candidates",
+            "created": [
+              {
+                "type": "calendar_event",
+                "id": "cal_b292b2059997447b",
+                "title": "给小王补课",
+                "description": "明天下午3点给小王补课",
+                "start_at": "2026-05-29T15:00:00+08:00",
+                "end_at": "2026-05-29T16:00:00+08:00",
+                "location": null,
+                "status": "active",
+                "source_capture_id": "cap2_673611c4a17f4bd5",
+                "feishu_event_id": null,
+                "confidence": 0.9,
+                "created_at": "2026-05-28T11:42:47Z",
+                "updated_at": "2026-05-28T11:42:47Z"
+              },
+              {
+                "type": "action_item",
+                "id": "task_5862bc9f3c3c4f4d",
+                "title": "把资料发家长",
+                "description": "今晚把资料发家长",
+                "status": "active",
+                "priority": "P1",
+                "due_at": "2026-05-28T21:00:00+08:00",
+                "estimated_minutes": null,
+                "project_id": null,
+                "person_id": null,
+                "source_capture_id": "cap2_673611c4a17f4bd5",
+                "confidence": 0.85,
+                "created_at": "2026-05-28T11:42:47Z",
+                "updated_at": "2026-05-28T11:42:47Z"
+              }
+            ]
+          },
+          "mock": true
+        }
+      ]
+    },
+    {
+      "scenario": "duplicate_confirm_is_idempotent",
+      "passed": true,
+      "reply": "这条确认已经处理过，不会重复执行。"
+    },
+    {
+      "scenario": "card_cancel_creates_nothing",
+      "passed": true,
+      "reply": "已取消这条候选，没有创建或修改任何事项。"
+    },
+    {
+      "scenario": "missing_confirmation_safe_failure",
+      "passed": true,
+      "reply": "没有找到这条待确认操作，可能已经失效。"
+    },
+    {
+      "scenario": "expired_confirmation_safe_failure",
+      "passed": true,
+      "reply": "这条确认已经过期，没有执行任何操作。"
+    },
+    {
+      "scenario": "calendar_update_requires_confirmation",
+      "passed": true,
+      "reply": "我识别到 1 个候选，需要你确认：\n回复“确认”后我再创建或修改。"
+    },
+    {
+      "scenario": "complete_unique_task",
+      "passed": true,
+      "reply": "已完成任务：整理资料"
+    },
+    {
+      "scenario": "complete_ambiguous_task_requires_choice",
+      "passed": true,
+      "reply": "找到 2 个可能的任务，请说清楚要完成哪一个：\n- 阅读论文（未设截止）\n- 阅读论文第二篇（未设截止）"
+    },
+    {
+      "scenario": "weekly_schedule_blocks",
+      "passed": true,
+      "reply": "我识别到 2 个固定时间块，需要你确认：\n回复“确认”后我再创建或修改。"
+    },
+    {
+      "scenario": "nightly_sleep_block",
+      "passed": true,
+      "reply": "我识别到 1 个固定时间块，需要你确认：\n回复“确认”后我再创建或修改。"
+    },
+    {
+      "scenario": "calendar_candidate_conflict_hint",
+      "passed": true,
+      "reply": "我识别到 2 个候选，需要你确认：\n回复“确认”后我再创建或修改。"
+    },
+    {
+      "scenario": "related_query_no_write",
+      "passed": true,
+      "reply": "和“小王”相关的事项共有 0 个任务、1 个日程、0 个固定安排：\n- 日程：给小王补课 2026-05-29T19:00:00+08:00 - 2026-05-29T20:00:00+08:00"
+    },
+    {
+      "scenario": "pending_confirmation_query_no_write",
+      "passed": true,
+      "reply": "当前有 1 个待确认项：\n- conf_79c54b13741e4b53：create_candidates，过期时间 2026-05-29T11:42:48.812012Z"
+    }
+  ],
+  "counts": {
+    "action_items": 4,
+    "calendar_events": 1,
+    "schedule_blocks": 4,
+    "agent_runs": 12,
+    "tool_runs": 16,
+    "sent_texts": 5,
+    "sent_cards": 6,
+    "synced_tasks": 1,
+    "synced_calendar_events": 2,
+    "synced_audits": 7
+  },
+  "sync_samples": {
+    "tasks": [
+      {
+        "status": "staged",
+        "task_guid": "mock_task_task_5862bc9f3c3c4f4d",
+        "action_item": {
+          "id": "task_5862bc9f3c3c4f4d",
+          "title": "把资料发家长",
+          "description": "今晚把资料发家长",
+          "status": "active",
+          "priority": "P1",
+          "due_at": "2026-05-28T21:00:00+08:00",
+          "estimated_minutes": null,
+          "project_id": null,
+          "person_id": null,
+          "source_capture_id": "cap2_673611c4a17f4bd5",
+          "confidence": 0.85,
+          "created_at": "2026-05-28T11:42:47Z",
+          "updated_at": "2026-05-28T11:42:47Z"
+        },
+        "mock": true
+      }
+    ],
+    "calendar": [
+      {
+        "status": "staged",
+        "event_id": "mock_event_cal_b292b2059997447b",
+        "calendar_event": {
+          "id": "cal_b292b2059997447b",
+          "title": "给小王补课",
+          "description": "明天下午3点给小王补课",
+          "start_at": "2026-05-29T15:00:00+08:00",
+          "end_at": "2026-05-29T16:00:00+08:00",
+          "location": null,
+          "status": "active",
+          "source_capture_id": "cap2_673611c4a17f4bd5",
+          "feishu_event_id": null,
+          "confidence": 0.9,
+          "created_at": "2026-05-28T11:42:47Z",
+          "updated_at": "2026-05-28T11:42:47Z"
+        },
+        "mock": true
+      },
+      {
+        "status": "staged",
+        "event_id": "mock_event_cal_b292b2059997447b",
+        "calendar_event": {
+          "id": "cal_b292b2059997447b",
+          "title": "给小王补课",
+          "description": "明天下午3点给小王补课",
+          "start_at": "2026-05-29T19:00:00+08:00",
+          "end_at": "2026-05-29T20:00:00+08:00",
+          "location": null,
+          "status": "active",
+          "source_capture_id": "cap2_673611c4a17f4bd5",
+          "feishu_event_id": "mock_event_cal_b292b2059997447b",
+          "confidence": 0.9,
+          "created_at": "2026-05-28T11:42:47Z",
+          "updated_at": "2026-05-28T11:42:47Z"
+        },
+        "mock": true
+      }
+    ],
+    "audit": [
+      {
+        "status": "staged",
+        "audit_id": "mock_audit_5",
+        "payload": {
+          "confirmation_id": "conf_0c10cca5cc364eaa",
+          "confirmation_type": "schedule_blocks",
+          "created": [
+            {
+              "type": "schedule_block",
+              "id": "blk_8a291727a76a4d66",
+              "title": "固定上课",
+              "recurrence_rule": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+              "start_time": "19:00",
+              "end_time": "21:00",
+              "timezone": "Asia/Shanghai",
+              "status": "active",
+              "source_capture_id": "cap2_6a804f4fd4c24181",
+              "created_at": "2026-05-28T11:42:48Z",
+              "updated_at": "2026-05-28T11:42:48Z"
+            },
+            {
+              "type": "schedule_block",
+              "id": "blk_f7748b0271474bbb",
+              "title": "实验课",
+              "recurrence_rule": "FREQ=WEEKLY;BYDAY=TU",
+              "start_time": "14:00",
+              "end_time": "17:00",
+              "timezone": "Asia/Shanghai",
+              "status": "active",
+              "source_capture_id": "cap2_6a804f4fd4c24181",
+              "created_at": "2026-05-28T11:42:48Z",
+              "updated_at": "2026-05-28T11:42:48Z"
+            }
+          ]
+        },
+        "mock": true
+      },
+      {
+        "status": "staged",
+        "audit_id": "mock_audit_6",
+        "payload": {
+          "schedule_block": {
+            "id": "blk_6df463bc7f6e4d3a",
+            "title": "睡觉",
+            "recurrence_rule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA,SU",
+            "start_time": "00:00",
+            "end_time": "08:00",
+            "timezone": "Asia/Shanghai",
+            "status": "active",
+            "source_capture_id": "cap2_118afb2b7150456f",
+            "created_at": "2026-05-28T11:42:48Z",
+            "updated_at": "2026-05-28T11:42:48Z"
+          }
+        },
+        "mock": true
+      },
+      {
+        "status": "staged",
+        "audit_id": "mock_audit_7",
+        "payload": {
+          "confirmation_id": "conf_a6af9a27ce51423d",
+          "confirmation_type": "schedule_blocks",
+          "created": [
+            {
+              "type": "schedule_block",
+              "id": "blk_6df463bc7f6e4d3a",
+              "title": "睡觉",
+              "recurrence_rule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA,SU",
+              "start_time": "00:00",
+              "end_time": "08:00",
+              "timezone": "Asia/Shanghai",
+              "status": "active",
+              "source_capture_id": "cap2_118afb2b7150456f",
+              "created_at": "2026-05-28T11:42:48Z",
+              "updated_at": "2026-05-28T11:42:48Z"
+            }
+          ]
+        },
+        "mock": true
+      }
+    ]
+  }
+}

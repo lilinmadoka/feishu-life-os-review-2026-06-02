@@ -1,0 +1,23 @@
+### Health
+GET http://localhost:8000/health
+
+### Capture a tutoring commitment
+POST http://localhost:8000/api/captures
+Content-Type: application/json
+
+{
+  "raw_text": "明天下午3点给学生小王补课，记得今晚把资料发给家长",
+  "source_type": "manual"
+}
+
+### Capture project work
+POST http://localhost:8000/api/captures
+Content-Type: application/json
+
+{
+  "raw_text": "今晚把项目 README 改完，明早让 Codex 接飞书 API",
+  "source_type": "manual"
+}
+
+### Daily review
+GET http://localhost:8000/api/reviews/daily

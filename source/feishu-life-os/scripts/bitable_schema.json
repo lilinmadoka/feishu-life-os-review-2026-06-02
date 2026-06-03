@@ -1,0 +1,60 @@
+{
+  "tables": [
+    {
+      "name": "捕获收件箱",
+      "purpose": "保存所有原始输入：手输、聊天转发、截图 OCR、邮件、学习平台通知、飞书事件。",
+      "fields": [
+        {"name": "捕获ID", "type": "text", "required": true},
+        {"name": "原始内容", "type": "multiline_text", "required": true},
+        {"name": "规范内容", "type": "multiline_text"},
+        {"name": "来源类型", "type": "single_select", "options": ["manual", "feishu_bot", "feishu_event", "email", "chat", "screenshot", "learning_platform", "voice", "notification", "api"]},
+        {"name": "来源引用", "type": "text"},
+        {"name": "状态", "type": "single_select", "options": ["new", "parsed", "needs_review", "archived"]},
+        {"name": "置信度", "type": "number", "format": "0.00"},
+        {"name": "创建时间", "type": "datetime"},
+        {"name": "附件", "type": "attachment"},
+        {"name": "备注", "type": "multiline_text"}
+      ],
+      "views": ["全部", "待确认", "今日新增", "截图/OCR"]
+    },
+    {
+      "name": "行动项",
+      "purpose": "保存结构化任务、事件、等待事项、提醒和笔记。",
+      "fields": [
+        {"name": "行动ID", "type": "text", "required": true},
+        {"name": "标题", "type": "text", "required": true},
+        {"name": "描述", "type": "multiline_text"},
+        {"name": "意图", "type": "single_select", "options": ["task", "event", "followup", "waiting", "note", "habit", "deadline"]},
+        {"name": "领域", "type": "single_select", "options": ["school", "tutoring", "study", "project", "communication", "personal", "other"]},
+        {"name": "状态", "type": "single_select", "options": ["inbox", "planned", "doing", "waiting", "done", "canceled", "snoozed"]},
+        {"name": "优先级", "type": "single_select", "options": ["P0", "P1", "P2", "P3"]},
+        {"name": "能量", "type": "single_select", "options": ["low", "medium", "high"]},
+        {"name": "截止时间", "type": "datetime"},
+        {"name": "提醒时间", "type": "datetime"},
+        {"name": "预计分钟", "type": "number"},
+        {"name": "人物", "type": "text"},
+        {"name": "项目", "type": "text"},
+        {"name": "标签", "type": "multi_select"},
+        {"name": "证据", "type": "multiline_text"},
+        {"name": "捕获ID", "type": "text"},
+        {"name": "飞书任务GUID", "type": "text"},
+        {"name": "置信度", "type": "number", "format": "0.00"},
+        {"name": "创建时间", "type": "datetime"}
+      ],
+      "views": ["今天", "逾期", "P0/P1", "学校", "家教", "项目", "等待别人", "收件箱", "已完成"]
+    },
+    {
+      "name": "每日复盘",
+      "purpose": "保存每天早晚生成的行动面板，便于回看和调试。",
+      "fields": [
+        {"name": "日期", "type": "date", "required": true},
+        {"name": "摘要", "type": "multiline_text"},
+        {"name": "P0数量", "type": "number"},
+        {"name": "逾期数量", "type": "number"},
+        {"name": "收件箱数量", "type": "number"},
+        {"name": "创建时间", "type": "datetime"}
+      ],
+      "views": ["最近 30 天", "有风险"]
+    }
+  ]
+}
