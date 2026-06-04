@@ -7,6 +7,12 @@ from app.agents.providers.codex_cli import CodexCliAgentProvider
 from app.agents.providers.rules_fallback import RulesFallbackAgentProvider
 from app.config import Settings, get_settings
 from app.core.feishu_native import FeishuOpenApiNativeAdapter, MockFeishuNativeAdapter
+from app.core.observability import (
+    NullTraceEmitter,
+    SQLiteTraceEmitter,
+    SQLiteTraceStore,
+    TraceEmitter,
+)
 from app.core.orchestrator import CoreAgentOrchestrator
 from app.core.providers import (
     CodexCliProvider,
@@ -128,6 +134,20 @@ def get_core_feishu_adapter():
     return MockFeishuNativeAdapter()
 
 
+@lru_cache
+def get_observability_store() -> SQLiteTraceStore:
+    store = SQLiteTraceStore(get_repo())
+    store.migrate()
+    return store
+
+
+def get_trace_emitter() -> TraceEmitter:
+    settings = get_settings()
+    if not settings.observability_enabled:
+        return NullTraceEmitter()
+    return SQLiteTraceEmitter(get_observability_store())
+
+
 def get_core_orchestrator() -> CoreAgentOrchestrator:
     settings = get_settings()
     return CoreAgentOrchestrator(
@@ -135,4 +155,5 @@ def get_core_orchestrator() -> CoreAgentOrchestrator:
         provider=get_core_provider(),
         feishu=get_core_feishu_adapter(),
         tz=settings.tzinfo,
+        trace_emitter=get_trace_emitter(),
     )

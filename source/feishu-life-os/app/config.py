@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     lm_studio_use_native_chat: bool = Field(default=False, alias="LM_STUDIO_USE_NATIVE_CHAT")
     attachment_storage_dir: str = Field(default=".data/attachments", alias="ATTACHMENT_STORAGE_DIR")
     vision_attachment_max_bytes: int = Field(default=8 * 1024 * 1024, alias="VISION_ATTACHMENT_MAX_BYTES")
+    observability_enabled: bool = Field(default=False, alias="OBSERVABILITY_ENABLED")
+    observability_retention_days: int = Field(default=14, alias="OBSERVABILITY_RETENTION_DAYS")
+    observability_max_artifact_bytes: int = Field(default=12_000, alias="OBSERVABILITY_MAX_ARTIFACT_BYTES")
 
     @property
     def tzinfo(self) -> ZoneInfo:

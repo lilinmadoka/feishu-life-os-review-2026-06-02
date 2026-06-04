@@ -5,7 +5,7 @@ Generated for architecture and source review. This repository contains the techn
 Source workspace:
 
 ```text
-E:\learning\基于飞书做的助理系统\feishu-life-os
+E:\learning\...\feishu-life-os
 ```
 
 ## Review Entry Points
@@ -20,7 +20,7 @@ E:\learning\基于飞书做的助理系统\feishu-life-os
 8. [Security, privacy, and risks](docs/07_SECURITY_AND_RISKS.md)
 9. [Review questions](docs/08_REVIEW_QUESTIONS.md)
 10. [Context compiler architecture proposal](docs/09_CONTEXT_COMPILER_ARCHITECTURE.md)
-11. [Visual observability architecture proposal](docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md)
+11. [Visual observability architecture](docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md)
 12. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
 
 ## Source Snapshot
@@ -31,28 +31,27 @@ The sanitized project source is under:
 source/feishu-life-os/
 ```
 
-It includes the FastAPI app, core agent runtime, planning layer, adapters, routers, workers, scripts, tests, validation summaries, and project metadata needed for review.
+It includes the FastAPI app, core agent runtime, planning layer, Context Compiler, Visual Observability Phase 1 implementation, adapters, routers, workers, scripts, tests, validation summaries, and project metadata needed for review.
 
 It intentionally excludes real environment files, local databases, attachments, screenshots, logs, caches, virtual environments, generated archives, and private runtime data.
 
 ## Current Review Focus
 
-- The v2 runtime now has a planning layer between provider output and tool execution.
+- The v2 runtime has a planning layer between provider output and tool execution.
 - The local model may produce an `AssistantProposal` for ambiguous or long-term requests.
 - `PlannerService` persists and refines proposal state through existing `PlanDraft` storage.
 - `RiskPolicy` and confirmation cards remain the write boundary.
 - `ToolRouter` is kept to confirmed concrete operations and rejects planning-only direct tools.
-- `ContextCompiler` is now implemented as a dual-track v1/v2 context layer with provider-readable capsules.
-- Context capsule rendering now applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
-- `Visual Observability` is proposed as a旁路式 dynamic trace layer for dense progress-bar-style monitoring, context lens inspection, state diffs, and replayable workflow traces.
+- `ContextCompiler` is implemented as a dual-track v1/v2 context layer with provider-readable capsules.
+- Context capsule rendering applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
+- `Visual Observability` Phase 1 is implemented as a best-effort trace layer with SQLite-backed traces/spans/events/artifacts/state diffs, redaction, no-op default behavior, guarded read-only API routes, and orchestrator instrumentation.
 
 ## Latest Local Validation
 
 Executed in the source workspace before export:
 
 ```text
-python -m pytest tests/test_core_agent_v2.py -q
-python -m pytest tests/test_context_compiler.py -q
+python -m pytest tests/test_observability.py -q
 python -m pytest -q
 python -m ruff check app tests
 ```
@@ -60,8 +59,9 @@ python -m ruff check app tests
 Results:
 
 ```text
+tests/test_observability.py: 5 passed
 tests/test_context_compiler.py: 9 passed
 tests/test_core_agent_v2.py: 92 passed
-full pytest suite: 158 passed
+full pytest suite: 163 passed
 ruff check app tests: passed
 ```

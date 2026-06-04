@@ -5,6 +5,7 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.core.observability.store import OBSERVABILITY_SQL
 from app.core.schemas import (
     ActionItem,
     AgentRun,
@@ -229,6 +230,7 @@ class StateStore:
                     ON plan_drafts(sender_id, status, created_at);
                 """
             )
+            conn.executescript(OBSERVABILITY_SQL)
             with suppress(Exception):
                 conn.execute("ALTER TABLE schedule_blocks ADD COLUMN feishu_event_id TEXT")
             with suppress(Exception):

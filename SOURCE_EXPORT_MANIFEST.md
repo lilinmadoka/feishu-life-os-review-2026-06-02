@@ -1,11 +1,11 @@
 # Sanitized Source Export Manifest
 
-Export date: 2026-06-03
+Export date: 2026-06-04
 
 Local source root:
 
 ```text
-E:\learning\基于飞书做的助理系统\feishu-life-os
+E:\learning\...\feishu-life-os
 ```
 
 Repository destination:
@@ -17,19 +17,20 @@ source/feishu-life-os/
 ## Included
 
 - `app/`: FastAPI application, adapters, routers, services, workers, and core agent runtime.
-- `app/core/planner.py`: new `PlannerService` implementation.
+- `app/core/planner.py`: `PlannerService` implementation.
 - `app/core/schemas.py`: includes `AssistantProposal` schema.
-- `app/core/orchestrator.py`: provider -> planner -> risk/confirmation/tool execution wiring.
+- `app/core/orchestrator.py`: provider -> planner -> risk/confirmation/tool execution wiring, plus Phase 1 observability spans.
 - `app/core/policy.py`: proposal write-safety checks.
 - `app/core/tools.py`: concrete tool execution boundary and planning-only tool rejection.
 - `app/core/providers.py`: proposal-first behavior for complex planning requests.
 - `app/core/context_builder.py`: proposal context summaries.
-- `app/core/context/`: Context Compiler, v2 context schemas, budget trimming, and first compressor set.
-- `app/core/context/render.py`: provider capsule render policy for compact, stage-aware context visibility.
+- `app/core/context/`: Context Compiler, v2 context schemas, budget trimming, compressors, and provider render policy.
+- `app/core/observability/`: Phase 1 trace schemas, redaction, SQLite store, and no-op/SQLite emitters.
+- `app/routers/observability.py`: read-only trace inspection API guarded by the existing admin-token convention.
 - `app/core/agent_response_schema.json`: structured provider response schema with optional proposal.
-- `tests/`: unit and regression tests, including planning-layer coverage.
+- `tests/`: unit and regression tests, including planning-layer, Context Compiler, and observability coverage.
 - `scripts/`: development, validation, local gateway, and dry-run helper scripts.
-- `docs/`: project documentation from the source workspace, including the Context Compiler and Visual Observability architecture proposals.
+- `docs/`: project documentation from the source workspace, including Context Compiler and Visual Observability architecture documents.
 - `validation/`: non-private validation summaries.
 - `README.md`, `pyproject.toml`, `Makefile`, `railway.json`, `.gitignore`, `.env.example`.
 
@@ -68,14 +69,16 @@ source/feishu-life-os/
 - Added a provider render/policy layer: confirmation capsules are summary-only, plan draft facts are capped, and schedule busy/free facts are exposed only for availability/scheduling contexts.
 - Added relevance gating so schedule availability compression does not run for ordinary confirm or smalltalk messages.
 
-## Visual Observability Proposal In This Snapshot
+## Visual Observability Phase 1 Changes In This Snapshot
 
 - Added `docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md` at the review package root.
 - Added `source/feishu-life-os/docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md` for Codex implementation guidance inside the source snapshot.
-- Proposed a旁路式 dynamic trace layer with Trace/Span/Event/Artifact/StateDiff records.
-- Proposed dense progress-bar-style monitoring views: trace list, KPI strip, multi-lane timeline, Context Lens, Policy Gate, Planner/PlanDraft, Tool/Confirmation/StateDiff, Feishu/Reminder panels.
-- Proposed Phase 1 implementation scope: schema, SQLite trace store, no-op/default emitter, orchestrator instrumentation, redaction, minimal read-only API routes, and tests.
-- Proposed later phases for Context Lens instrumentation, local dashboard, live stream, replay, graph, metrics, and optional exporter support.
+- Added trace, span, event, artifact, and state-diff SQLite tables through the existing store migration path.
+- Added no-op default tracing plus an `OBSERVABILITY_ENABLED` SQLite emitter path.
+- Added redaction for sensitive sender/open_id-style identifiers and raw text truncation.
+- Added best-effort CoreAgentOrchestrator spans for capture lookup/create, context compilation, provider execution, policy validation, planner handling, tool execution, and final completion.
+- Added read-only `/api/v2/observability/traces` and `/api/v2/observability/traces/{trace_id}` routes.
+- Added tests for disabled no-op behavior, enabled trace capture, write-failure isolation, route protection, and redaction.
 
 ## Validation Record
 
@@ -88,8 +91,11 @@ Latest local checks before this export:
 .\.venv\Scripts\python.exe -m pytest tests/test_context_compiler.py -q
 9 passed
 
+.\.venv\Scripts\python.exe -m pytest tests/test_observability.py -q
+5 passed
+
 .\.venv\Scripts\python.exe -m pytest -q
-158 passed
+163 passed
 
 .\.venv\Scripts\python.exe -m ruff check app tests
 All checks passed!

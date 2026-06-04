@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.dependencies import get_repo
-from app.routers import actions, captures, codex, core_agent, feishu, reviews
+from app.routers import actions, captures, codex, core_agent, feishu, observability, reviews
 from app.security import PublicTunnelProtectionMiddleware
 
 
@@ -22,6 +22,7 @@ def create_app() -> FastAPI:
     app.include_router(reviews.router)
     app.include_router(feishu.router)
     app.include_router(core_agent.router)
+    app.include_router(observability.router)
     app.include_router(codex.router)
 
     @app.get("/health")
