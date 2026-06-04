@@ -2,6 +2,7 @@
 
 $root = Get-ProjectRoot
 Initialize-GatewayDirs -Root $root | Out-Null
+Import-DotEnv -Root $root
 
 function Show-TrackedStatus {
     param([string]$Name)
@@ -17,6 +18,14 @@ Show-TrackedStatus -Name "fastapi"
 Show-TrackedStatus -Name "cloudflared"
 Show-TrackedStatus -Name "codex_worker"
 Show-TrackedStatus -Name "reminder_worker"
+
+$lmBaseUrl = Get-LmStudioBaseUrl
+$lmStatus = Test-LmStudioServer -BaseUrl $lmBaseUrl
+if ($lmStatus.Ok) {
+    Write-Host "LM Studio: reachable ($lmBaseUrl/models, models=$($lmStatus.ModelCount))"
+} else {
+    Write-Host "LM Studio: unavailable ($lmBaseUrl/models) - $($lmStatus.Error)"
+}
 
 $portPid = Get-PortProcessId -Port 8000
 if ($portPid) {
@@ -46,3 +55,6 @@ if ($match.Success) {
 }
 
 Write-Host "Logs directory: $(Join-Path (Join-Path $root ".data") "logs")"
+
+$token = Get-RuntimeAdminToken -Root $root
+Write-Host "Observability UI: http://127.0.0.1:8000/api/v2/observability/ui?admin_token=$token"

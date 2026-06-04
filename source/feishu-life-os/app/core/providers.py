@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.context.render import render_provider_capsules
+from app.core.decision_schemas import AssistantDecision
 from app.core.relative_time import DAY_ROLLOVER_HOUR, effective_now
 from app.core.schemas import (
     AgentResponse,
@@ -731,6 +732,28 @@ class OpenAICompatibleChatProvider:
         intent = self._refine_entities(intent, request, model)
         return self._intent_to_agent_response(intent, request)
 
+    def run_decision(self, request: dict[str, Any]) -> AssistantDecision:
+        model = self.model or self._first_available_model()
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": self._decision_messages(request),
+            "temperature": 0.1,
+            "stream": False,
+        }
+        self._apply_chat_options(payload)
+        formatted = self._with_decision_response_format(payload)
+        data = self._post_chat_completion(formatted, fallback_payload=payload if formatted is not payload else None)
+        content = self._message_content(data)
+        try:
+            return self._parse_assistant_decision(content, allow_repair=True)
+        except (CoreAgentProviderError, json.JSONDecodeError, ValidationError) as exc:
+            return AssistantDecision(
+                action="reply",
+                confidence=0.0,
+                reasoning_summary=f"Invalid AssistantDecision JSON: {exc}",
+                reply_to_user="模型输出无法安全解析，已记录但不会写入任何数据。",
+            )
+
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -812,6 +835,23 @@ class OpenAICompatibleChatProvider:
                     "name": "model_intent",
                     "strict": True,
                     "schema": ModelIntent.model_json_schema(),
+                },
+            }
+        else:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
+
+    def _with_decision_response_format(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.response_format in {"", "none", "off", "disabled"}:
+            return payload
+        payload = {**payload}
+        if self.response_format == "json_schema":
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "assistant_decision",
+                    "strict": True,
+                    "schema": AssistantDecision.model_json_schema(),
                 },
             }
         else:
@@ -900,6 +940,8 @@ class OpenAICompatibleChatProvider:
             "course timetable image imports are start_plan_refinement with kind=course_timetable, not time-budget plans; "
             "course timetables, school schedules, classes, lessons, and fixed weekly availability are schedule blocks or calendar events, not long-term study tasks; "
             "unclear long-term habits or schedules should become plan drafts before calendar writes; "
+            "active_plan_drafts are context, not a refine command; use refine_plan_draft only for explicit draft continuation/correction; "
+            "a moved single class/event is an event update or clarification, not course_timetable refinement; "
             "Use recent_assistant_turns and recent_user_messages to resolve follow-ups; short messages may provide context for a recent attachment or plan; "
             "If the user corrects your interpretation, classify according to the corrected meaning and do not repeat the rejected meaning; "
             "inspect attached images when present, but do not treat attachment-only messages as confirmation or cancellation; "
@@ -921,6 +963,57 @@ class OpenAICompatibleChatProvider:
                 "role": "user",
                 "content": self._chat_user_content(user_text, request),
             },
+        ]
+
+    def _decision_messages(self, request: dict[str, Any]) -> list[dict[str, Any]]:
+        context = self._intent_context(request)
+        decision_guide = {
+            "raw_text": request.get("raw_text"),
+            "content_type": request.get("content_type"),
+            "now": request.get("now"),
+            "context_capsules": context.get("context_capsules") or [],
+            "pending_confirmations": context.get("pending_confirmations") or [],
+            "active_plan_drafts": context.get("active_plan_drafts") or [],
+            "recent_user_messages": context.get("recent_user_messages") or [],
+            "recent_assistant_turns": context.get("recent_assistant_turns") or [],
+            "long_term_tasks": context.get("long_term_tasks") or [],
+            "attachment_refs": context.get("attachment_refs") or [],
+            "available_actions": [
+                "reply",
+                "ask_clarification",
+                "create_proposal",
+                "refine_proposal",
+                "explain_proposal",
+                "regenerate_proposal_card",
+                "prepare_tool_confirmation",
+                "resolve_confirmation",
+                "query",
+            ],
+        }
+        user_text = (
+            "Return one AssistantDecision JSON object. The model is the only semantic interpreter in this path. "
+            "The backend will validate the decision and will not write data until explicit confirmed operations pass the confirmation boundary.\n\n"
+            "Decision rules:\n"
+            "- Use reply/query/ask_clarification/explain_proposal without candidate_operations.\n"
+            "- If the user says a proposal/card is unclear, use explain_proposal or regenerate_proposal_card, not refine_proposal.\n"
+            "- Use refine_proposal only when the user explicitly supplies fields to change, and put only those fields in proposal_patch.fields.\n"
+            "- Use create_proposal for ambiguous long-term goals before any calendar/task write.\n"
+            "- Use prepare_tool_confirmation only when concrete write operations are ready and each operation requires confirmation.\n"
+            "- Use resolve_confirmation only for a pending confirmation chosen from context or explicitly referenced by the user.\n"
+            "- Never include raw secrets, full Feishu payloads, or absolute attachment paths in the decision.\n\n"
+            f"AssistantDecision schema:\n{json.dumps(AssistantDecision.model_json_schema(), ensure_ascii=False, default=str)}\n\n"
+            f"Context JSON:\n{json.dumps(decision_guide, ensure_ascii=False, separators=(',', ':'), default=str)}"
+        )
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "You are the model-first planner for a Feishu personal assistant. "
+                    "Return JSON only matching AssistantDecision. Do not return legacy intent/entity JSON. "
+                    "Do not execute tools or claim that data was written."
+                ),
+            },
+            {"role": "user", "content": self._chat_user_content(user_text, request)},
         ]
 
     def _refine_entities(self, intent: ModelIntent, request: dict[str, Any], model: str) -> ModelIntent:
@@ -979,6 +1072,8 @@ class OpenAICompatibleChatProvider:
             "Entity requirements by intent:\n"
             "- schedule_time_budget_plan/query_time_budget_plan: choose action_item_id from long_term_tasks when possible; include query only if no id is available; optional daily_minutes, session_minutes, min_session_minutes, buffer_minutes, window_start, window_end.\n"
             "- start_plan_refinement/refine_plan_draft: kind, raw_text, optional plan_id, attachment_refs, extracted_payload. For course_timetable include period_map, term_anchor, courses when visible.\n"
+            "  Use refine_plan_draft only when the user clearly adds details to, corrects, or asks to continue that active draft; do not use it just because active_plan_drafts exists.\n"
+            "  If the user mentions one class/event moving to another time, extract update_calendar_event fields when possible or leave reply as a clarification; do not force course_timetable refinement.\n"
             "- generate_plan_schedule_confirmation: plan_id when an active plan draft is ready.\n"
             "- create_time_budget_plan: title, estimated_minutes, due_at, optional start_date/description.\n"
             "- create_task/update_task/cancel_task/complete_task: title or query, action_item_id if an existing task is referenced, plus changed fields.\n"
@@ -1530,21 +1625,7 @@ class OpenAICompatibleChatProvider:
                 ],
             )
 
-        if self._should_refine_plan_draft(raw_text, request, intent_name):
-            return AgentResponse(
-                intent="create_candidates",
-                confidence=max(intent.confidence, 0.82),
-                reasoning_summary=intent.reasoning_summary or "User is refining an active plan draft.",
-                reply_to_user="我会更新这张长期日程草案；信息够了再生成日程确认卡。",
-                tool_calls=[
-                    AgentToolCall(
-                        tool_name="refine_plan_draft",
-                        risk_level=RiskLevel.low,
-                        arguments=self._plan_refinement_args(raw_text, request, entities, kind="course_timetable"),
-                    )
-                ],
-            )
-        if intent_name in {"start_plan_refinement", "refine_plan_draft"} or self._looks_like_course_timetable_request(raw_text, request):
+        if intent_name in {"start_plan_refinement", "refine_plan_draft"}:
             tool_name = "refine_plan_draft" if intent_name == "refine_plan_draft" else "start_plan_refinement"
             return AgentResponse(
                 intent="create_candidates",
@@ -2549,6 +2630,25 @@ class OpenAICompatibleChatProvider:
 
         return ModelIntent.model_validate(data)
 
+    def _parse_assistant_decision(self, content: str, *, allow_repair: bool = False) -> AssistantDecision:
+        text = self._json_text(content, allow_repair=allow_repair)
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise CoreAgentProviderError(f"{self.name} returned a non-object AssistantDecision")
+        if data.get("decision_schema_version") in {None, ""}:
+            data["decision_schema_version"] = 1
+        if data.get("reasoning_summary") is None:
+            data["reasoning_summary"] = ""
+        if data.get("reply_to_user") is None:
+            data["reply_to_user"] = ""
+        if data.get("referenced_context") is None:
+            data["referenced_context"] = []
+        if data.get("candidate_operations") is None:
+            data["candidate_operations"] = []
+        if data.get("uncertainty") is None:
+            data["uncertainty"] = []
+        return AssistantDecision.model_validate(data)
+
     def _default_needs_confirmation(self, intent_name: str) -> bool:
         return intent_name in {
             "schedule_time_budget_plan",
@@ -2668,6 +2768,11 @@ class LmStudioProvider(OpenAICompatibleChatProvider):
         if not self.use_native_chat:
             self._ensure_loaded_context()
         return super().run(request)
+
+    def run_decision(self, request: dict[str, Any]) -> AssistantDecision:
+        if not self.use_native_chat:
+            self._ensure_loaded_context()
+        return super().run_decision(request)
 
     def _post_chat_completion(
         self,

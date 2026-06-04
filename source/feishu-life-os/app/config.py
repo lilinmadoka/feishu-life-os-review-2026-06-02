@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     agent_provider: str = Field(default="codex_cli", alias="AGENT_PROVIDER")
     agent_codex_timeout_seconds: int = Field(default=300, alias="AGENT_CODEX_TIMEOUT_SECONDS")
     agent_stack: str = Field(default="legacy", alias="AGENT_STACK")
+    core_agent_runtime_mode: str = Field(default="legacy", alias="CORE_AGENT_RUNTIME_MODE")
     core_agent_provider: str = Field(default="mock_provider", alias="CORE_AGENT_PROVIDER")
     lm_studio_base_url: str = Field(default="http://127.0.0.1:1234/v1", alias="LM_STUDIO_BASE_URL")
     lm_studio_model: str | None = Field(default=None, alias="LM_STUDIO_MODEL")

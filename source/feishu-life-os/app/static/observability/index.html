@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Visual Observability</title>
+    <title>LifeOS 消息流程观测</title>
     <style>
 /*__OBSERVABILITY_CSS__*/
     </style>
@@ -13,70 +13,72 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Feishu Life OS</p>
-          <h1>Visual Observability</h1>
+          <h1>消息流程观测</h1>
         </div>
         <form id="token-form" class="token-form">
           <label for="admin-token">Admin token</label>
           <input id="admin-token" name="admin-token" type="password" autocomplete="off" />
-          <button type="submit">Connect</button>
-          <button id="refresh" type="button">Refresh</button>
+          <button type="submit">连接</button>
+          <button id="refresh" type="button">刷新</button>
+          <label class="toggle"><input id="live" type="checkbox" checked /> 实时</label>
+          <button id="replay" type="button">重播</button>
+          <select id="replay-speed" aria-label="Replay speed">
+            <option value="0.5">0.5倍</option>
+            <option value="1" selected>1倍</option>
+            <option value="2">2倍</option>
+            <option value="5">5倍</option>
+          </select>
         </form>
       </header>
 
-      <section id="status" class="status">Waiting for admin token.</section>
+      <section id="status" class="status">等待 admin token。</section>
+      <section id="system-health" class="system-health"></section>
 
-      <section class="kpi-grid" id="kpi-strip"></section>
-
-      <section class="workbench">
+      <section class="main-grid">
         <aside class="trace-panel">
           <div class="panel-head">
-            <h2>Trace List</h2>
+            <h2>消息记录</h2>
             <span id="trace-count">0</span>
           </div>
           <div class="filters">
-            <input id="filter" type="search" placeholder="Filter workflow, intent, status" />
+            <input id="filter" type="search" placeholder="筛选状态、意图、失败原因" />
           </div>
           <div id="trace-list" class="trace-list"></div>
         </aside>
 
-        <section class="timeline-panel">
-          <div class="panel-head">
-            <h2>Multi-lane Timeline</h2>
-            <span id="selected-trace">No trace selected</span>
+        <section class="flow-panel">
+          <div class="flow-head">
+            <div>
+              <p id="trace-title" class="trace-title">未选择消息</p>
+              <p id="trace-reason" class="trace-reason">选择一条记录查看处理流程。</p>
+            </div>
+            <div id="trace-metrics" class="trace-metrics"></div>
           </div>
-          <div id="timeline" class="timeline"></div>
+          <div id="pipeline" class="pipeline"></div>
         </section>
       </section>
 
-      <section class="lower-grid">
-        <section class="panel">
+      <section class="detail-grid">
+        <section class="panel stage-detail-panel">
           <div class="panel-head">
-            <h2>Context Lens</h2>
-            <span id="context-summary">No context artifact</span>
+            <h2 id="stage-title">阶段详情</h2>
+            <span id="stage-summary">选择一个阶段</span>
           </div>
-          <div id="context-lens" class="context-lens"></div>
+          <div id="stage-detail" class="stage-detail"></div>
         </section>
 
         <section class="panel">
           <div class="panel-head">
-            <h2>Span Detail</h2>
-            <span id="detail-summary">Select a span</span>
+            <h2>上下文/证据</h2>
+            <span id="evidence-summary">0 条</span>
           </div>
-          <pre id="span-detail" class="detail-box"></pre>
+          <div id="evidence-list" class="evidence-list"></div>
         </section>
 
         <section class="panel">
           <div class="panel-head">
-            <h2>Artifacts / State</h2>
-            <span id="artifact-summary">0 artifacts</span>
-          </div>
-          <div id="artifact-list" class="artifact-list"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Trace Graph</h2>
-            <span id="graph-summary">0 nodes</span>
+            <h2>轨迹图</h2>
+            <span id="graph-summary">0 节点</span>
           </div>
           <svg id="trace-graph" class="trace-graph" role="img" aria-label="trace graph"></svg>
         </section>

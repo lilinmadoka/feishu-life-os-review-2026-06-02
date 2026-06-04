@@ -1395,14 +1395,14 @@ def test_schedule_time_budget_requires_specific_long_term_target():
     assert "长期任务" in response.reply_to_user
 
 
-def test_course_timetable_request_starts_plan_draft_instead_of_schedule_blocks():
+def test_explicit_course_timetable_intent_starts_plan_draft():
     provider = OpenAICompatibleChatProvider(base_url="http://127.0.0.1:9/v1", model="test", response_format="none")
     response = provider._intent_to_agent_response(
         ModelIntent(
-            intent="create_schedule_block",
+            intent="start_plan_refinement",
             confidence=0.95,
-            entities={"blocks": [{"title": "上午一二节课", "start_at": "08:00", "end_at": "09:40"}]},
-            reasoning_summary="missing recurrence",
+            entities={"period_map": {"1-2": {"start_time": "08:00", "end_time": "09:40"}}},
+            reasoning_summary="model selected course timetable planning",
         ),
         {"raw_text": "把课表安排进日程", "content_type": "text"},
     )
@@ -1411,6 +1411,26 @@ def test_course_timetable_request_starts_plan_draft_instead_of_schedule_blocks()
     assert response.tool_calls[0].arguments["kind"] == "course_timetable"
     assert all(call.tool_name != "create_schedule_block_candidates" for call in response.tool_calls)
     assert "课程表草案" in response.reply_to_user
+
+
+def test_active_course_draft_does_not_hijack_ordinary_schedule_change():
+    provider = OpenAICompatibleChatProvider(base_url="http://127.0.0.1:9/v1", model="test", response_format="none")
+    response = provider._intent_to_agent_response(
+        ModelIntent(
+            intent="create_calendar_event",
+            confidence=0.78,
+            entities={},
+            reasoning_summary="model did not choose plan refinement",
+        ),
+        {
+            "raw_text": "今天下午的课调到了下下周周日早上",
+            "content_type": "text",
+            "active_plan_drafts": [{"id": "plan_course", "kind": "course_timetable", "status": "refining"}],
+        },
+    )
+
+    assert all(call.tool_name != "refine_plan_draft" for call in response.tool_calls)
+    assert "课程表草案" not in response.reply_to_user
 
 
 def test_schedule_block_candidates_normalize_time_only_fields_when_complete():
@@ -1799,6 +1819,33 @@ def test_review_proposal_followup_updates_draft_and_waits_for_confirmation(tmp_p
     assert "create_calendar_event_candidate" in tool_names
     assert store.list_action_items() == []
     assert store.list_calendar_events() == []
+
+
+def test_active_plan_draft_feedback_does_not_mutate_as_refinement(tmp_path):
+    orchestrator, store, feishu = build_orchestrator(tmp_path)
+    first = asyncio.run(process(orchestrator, "我想长期复习数学", "mid_review_feedback_start"))
+    draft_before = store.get_plan_draft(first.proposal_id)
+    payload_before = draft_before.payload
+    missing_before = list(draft_before.missing_fields)
+    status_before = draft_before.status
+    confidence_before = draft_before.confidence
+    card_count_before = len(feishu.sent_cards)
+
+    feedback = asyncio.run(process(orchestrator, "你这个候选计划我看不懂", "mid_review_feedback"))
+
+    draft_after = store.get_plan_draft(first.proposal_id)
+    assert feedback.proposal_id is None
+    assert feedback.confirmation_id is None
+    assert draft_after.payload == payload_before
+    assert draft_after.missing_fields == missing_before
+    assert draft_after.status == status_before
+    assert draft_after.confidence == confidence_before
+    assert len(feishu.sent_cards) == card_count_before
+
+    serialized_payload = json.dumps(draft_after.payload, ensure_ascii=False)
+    assert "你这个候选计划我看不懂" not in serialized_payload
+    assert "byday" not in serialized_payload
+    assert "frequency" not in serialized_payload
 
 
 def test_confirmed_review_proposal_creates_concrete_items(tmp_path):

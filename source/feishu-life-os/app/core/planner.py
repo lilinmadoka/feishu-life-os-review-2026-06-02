@@ -41,6 +41,10 @@ class PlannerOutcome:
     confirmation_id: str | None = None
     proposal_id: str | None = None
     card_sent: bool = False
+    legacy_adapter_used: bool = False
+    backend_semantic_fallback_used: bool = False
+    assistant_decision_action: str = ""
+    referenced_context: list[str] = field(default_factory=list)
 
 
 class PlannerService:
@@ -649,7 +653,7 @@ class PlannerService:
             return False
         if any(call.tool_name not in {"send_feishu_reply"} | PLANNING_ONLY_TOOLS for call in response.tool_calls):
             return False
-        return self._looks_like_proposal_followup(raw_text) or response.intent in {"unknown", "create_candidates"}
+        return self._looks_like_proposal_followup(raw_text)
 
     def _cancel_stale_schedule_confirmations(self, sender_id: str | None) -> None:
         for confirmation in self.store.list_pending_confirmations(sender_id=sender_id, limit=10):
@@ -864,3 +868,6 @@ class PlannerService:
 
     def _status_value(self, value: Any) -> str:
         return value.value if hasattr(value, "value") else str(value or PlanDraftStatus.refining.value)
+
+
+LegacyPlannerAdapter = PlannerService

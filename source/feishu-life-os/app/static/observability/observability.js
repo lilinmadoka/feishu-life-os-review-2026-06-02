@@ -1,33 +1,69 @@
+const bootstrapToken = readBootstrapToken();
+
 const state = {
-  token: window.localStorage.getItem("observability_admin_token") || "",
+  token: bootstrapToken || window.sessionStorage.getItem("observability_admin_token") || "",
   traces: [],
   selectedTraceId: null,
   selectedDetail: null,
+  currentTimeline: null,
+  currentGraph: null,
+  currentArtifacts: null,
+  activeStageId: null,
+  summary: null,
+  system: null,
   filter: "",
+  live: true,
+  loading: false,
+  replayTimers: [],
 };
 
-const lanes = ["ingest", "context", "model", "guard", "planner", "execute", "state", "external"];
+const statusLabel = {
+  ok: "正常",
+  failed: "失败",
+  warn: "警告",
+  blocked: "阻断",
+  skipped: "跳过",
+  running: "运行中",
+  unavailable: "不可用",
+  stopped: "停止",
+};
 
 const el = {
   tokenForm: document.getElementById("token-form"),
   tokenInput: document.getElementById("admin-token"),
   refresh: document.getElementById("refresh"),
   status: document.getElementById("status"),
-  kpi: document.getElementById("kpi-strip"),
+  live: document.getElementById("live"),
+  replay: document.getElementById("replay"),
+  speed: document.getElementById("replay-speed"),
+  systemHealth: document.getElementById("system-health"),
   traceCount: document.getElementById("trace-count"),
   traceList: document.getElementById("trace-list"),
-  selectedTrace: document.getElementById("selected-trace"),
-  timeline: document.getElementById("timeline"),
   filter: document.getElementById("filter"),
-  contextSummary: document.getElementById("context-summary"),
-  contextLens: document.getElementById("context-lens"),
-  detailSummary: document.getElementById("detail-summary"),
-  spanDetail: document.getElementById("span-detail"),
-  artifactSummary: document.getElementById("artifact-summary"),
-  artifactList: document.getElementById("artifact-list"),
+  traceTitle: document.getElementById("trace-title"),
+  traceReason: document.getElementById("trace-reason"),
+  traceMetrics: document.getElementById("trace-metrics"),
+  pipeline: document.getElementById("pipeline"),
+  stageTitle: document.getElementById("stage-title"),
+  stageSummary: document.getElementById("stage-summary"),
+  stageDetail: document.getElementById("stage-detail"),
+  evidenceSummary: document.getElementById("evidence-summary"),
+  evidenceList: document.getElementById("evidence-list"),
   graphSummary: document.getElementById("graph-summary"),
   graph: document.getElementById("trace-graph"),
 };
+
+function readBootstrapToken() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("admin_token") || "";
+  if (!token) return "";
+  window.sessionStorage.setItem("observability_admin_token", token);
+  params.delete("admin_token");
+  const query = params.toString();
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, "", nextUrl);
+  return token;
+}
 
 function headers() {
   return state.token ? {"x-admin-token": state.token} : {};
@@ -41,14 +77,330 @@ async function api(path) {
   return response.json();
 }
 
+async function loadTraces(options = {}) {
+  if (state.loading) return;
+  const quiet = Boolean(options.quiet && state.traces.length);
+  const preserveStage = Boolean(options.preserveStage ?? quiet);
+  state.loading = true;
+  if (!quiet) {
+    setStatus("正在加载观测数据...");
+  }
+  try {
+    const [data, summary, system] = await Promise.all([
+      api("/api/v2/observability/traces?limit=30"),
+      api("/api/v2/observability/summary?limit=50"),
+      api("/api/v2/observability/system"),
+    ]);
+    state.traces = data.items || [];
+    state.summary = summary;
+    state.system = system;
+    renderSystemHealth();
+    renderTraceList();
+    if (!state.selectedTraceId && state.traces.length) {
+      await selectTrace(state.traces[0].trace_id);
+    } else if (state.selectedTraceId && state.traces.some((trace) => trace.trace_id === state.selectedTraceId)) {
+      await selectTrace(state.selectedTraceId, {preserveStage});
+    } else if (state.traces.length) {
+      await selectTrace(state.traces[0].trace_id);
+    } else {
+      renderEmpty();
+    }
+    if (!quiet) {
+      setStatus(summaryText());
+    }
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function selectTrace(traceId, options = {}) {
+  const previousTraceId = state.selectedTraceId;
+  const previousStageId = state.activeStageId;
+  state.selectedTraceId = traceId;
+  const [detail, timeline, graph, artifacts] = await Promise.all([
+    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}`),
+    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}/timeline`),
+    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}/graph`),
+    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}/artifacts`),
+  ]);
+  state.selectedDetail = detail;
+  state.currentTimeline = timeline;
+  state.currentGraph = graph;
+  state.currentArtifacts = artifacts;
+  const stages = timeline.stages || [];
+  const preservedStage = options.preserveStage && previousTraceId === traceId
+    ? stages.find((stage) => stage.id === previousStageId)
+    : null;
+  const preferred = preservedStage
+    || stages.find((stage) => stage.status === "failed")
+    || stages.find((stage) => stage.status !== "skipped")
+    || stages[0];
+  state.activeStageId = preferred ? preferred.id : null;
+  renderTraceList();
+  renderTraceHeader();
+  renderPipeline();
+  renderStageDetail();
+  renderGraph();
+}
+
+function renderSystemHealth() {
+  const system = state.system || {};
+  const processes = system.processes || {};
+  const items = [
+    ["FastAPI", system.fastapi?.status || "unknown", system.fastapi?.url || "-"],
+    ["LM Studio", system.lm_studio?.status || "unknown", system.lm_studio?.loaded_models?.[0] || system.lm_studio?.message || "-"],
+    ["Provider", system.provider?.status || "unknown", system.provider?.name || "-"],
+    ["Tunnel", processes.cloudflared?.status || "unknown", processes.cloudflared?.pid ? `PID ${processes.cloudflared.pid}` : "-"],
+    ["Reminder", processes.reminder_worker?.status || "unknown", processes.reminder_worker?.pid ? `PID ${processes.reminder_worker.pid}` : "-"],
+  ];
+  el.systemHealth.innerHTML = items.map(([title, status, value]) => `
+    <div class="health-item">
+      <span class="dot ${escapeHtml(status)}"></span>
+      <span>
+        <span class="health-title">${escapeHtml(title)} · ${escapeHtml(labelFor(status))}</span>
+        <span class="health-value">${escapeHtml(value)}</span>
+      </span>
+    </div>
+  `).join("");
+}
+
+function renderTraceList() {
+  const query = state.filter.trim().toLowerCase();
+  const traces = query ? state.traces.filter((trace) => traceSearchText(trace).includes(query)) : state.traces;
+  el.traceCount.textContent = `${traces.length}`;
+  el.traceList.innerHTML = "";
+  for (const trace of traces) {
+    const attrs = attrsOf(trace);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `trace-row ${trace.trace_id === state.selectedTraceId ? "active" : ""}`;
+    row.addEventListener("click", () => selectTrace(trace.trace_id).catch(showError));
+    row.innerHTML = `
+      <span class="pill ${escapeHtml(trace.status)}">${escapeHtml(labelFor(trace.status))}</span>
+      <span>
+        <span class="row-title">${escapeHtml(trace.workflow_type)}</span>
+        <span class="row-sub">${escapeHtml(attrs.intent || trace.summary || trace.trace_id)}</span>
+      </span>
+      <span class="row-time">${escapeHtml(fmtTime(trace.started_at))}<br>${escapeHtml(fmtMs(trace.duration_ms))}</span>
+    `;
+    el.traceList.append(row);
+  }
+}
+
+function renderTraceHeader() {
+  const detail = state.selectedDetail;
+  const timeline = state.currentTimeline;
+  if (!detail || !timeline) return;
+  const trace = detail.trace;
+  const failedStage = (timeline.stages || []).find((stage) => stage.status === "failed");
+  el.traceTitle.textContent = `${labelFor(trace.status)} · ${trace.workflow_type} · ${trace.trace_id}`;
+  el.traceReason.textContent = failedStage
+    ? `卡在「${failedStage.label}」：${failedStage.error || failedStage.summary || trace.summary}`
+    : trace.summary || "这条消息已走完整条处理链路。";
+  const attrs = attrsOf(trace);
+  const items = [
+    ["总耗时", fmtMs(trace.duration_ms)],
+    ["关键阶段", fmtMs(timeline.critical_path_ms)],
+    ["Provider", attrs.provider_name || "-"],
+    ["Intent", attrs.intent || "-"],
+    ["确认卡", attrs.confirmation_id || "-"],
+  ];
+  el.traceMetrics.innerHTML = items.map(([label, value]) => `
+    <div class="metric"><span>${escapeHtml(label)}</span>${escapeHtml(value)}</div>
+  `).join("");
+}
+
+function renderPipeline() {
+  const stages = state.currentTimeline?.stages || [];
+  el.pipeline.innerHTML = "";
+  for (const stage of stages) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `stage-card ${stage.status} ${stage.id === state.activeStageId ? "active" : ""}`;
+    card.dataset.stageId = stage.id;
+    card.addEventListener("click", () => {
+      state.activeStageId = stage.id;
+      renderPipeline();
+      renderStageDetail();
+    });
+    card.innerHTML = `
+      <div class="stage-top">
+        <span class="stage-label">${escapeHtml(stage.label)}</span>
+        <span class="dot ${escapeHtml(stage.status)}"></span>
+      </div>
+      <div class="stage-status">${escapeHtml(labelFor(stage.status))} · ${escapeHtml(fmtMs(stage.duration_ms))}</div>
+      <div>
+        <p class="stage-desc">${escapeHtml(stage.description)}</p>
+        <p class="stage-summary">${escapeHtml(stage.summary || "")}</p>
+      </div>
+      <div class="stage-progress"><span style="width:${Math.max(4, Math.min(100, stage.width_percent || 0))}%"></span></div>
+    `;
+    el.pipeline.append(card);
+  }
+}
+
+function renderStageDetail() {
+  const stage = activeStage();
+  if (!stage) {
+    el.stageTitle.textContent = "阶段详情";
+    el.stageSummary.textContent = "选择一个阶段";
+    el.stageDetail.innerHTML = "";
+    el.evidenceSummary.textContent = "0 条";
+    el.evidenceList.innerHTML = "";
+    return;
+  }
+  el.stageTitle.textContent = `${stage.label} · ${labelFor(stage.status)}`;
+  el.stageSummary.textContent = stage.error || stage.summary || stage.description;
+  const spans = (state.selectedDetail?.spans || []).filter((span) => (stage.span_ids || []).includes(span.span_id));
+  el.stageDetail.innerHTML = [
+    stage.error ? `<div class="stage-detail-item"><strong>失败原因</strong><code>${escapeHtml(stage.error)}</code></div>` : "",
+    `<div class="stage-detail-item"><strong>阶段说明</strong><span>${escapeHtml(stage.description)}</span></div>`,
+    ...spans.map((span) => `
+      <div class="stage-detail-item">
+        <strong>${escapeHtml(span.name)} · ${escapeHtml(labelFor(span.status))} · ${escapeHtml(fmtMs(span.duration_ms))}</strong>
+        <div class="json-box">${escapeHtml(JSON.stringify(span.attrs || {}, null, 2))}</div>
+      </div>
+    `),
+  ].join("");
+  renderEvidence(stage);
+}
+
+function renderEvidence(stage) {
+  const artifacts = stage.artifacts || [];
+  const events = stage.events || [];
+  const diffs = stage.state_diffs || [];
+  el.evidenceSummary.textContent = `${artifacts.length} 文物，${events.length} 事件，${diffs.length} 变更`;
+  const blocks = [
+    ...artifacts.map((item) => evidenceBlock("文物", item.kind, `${item.label} · ${item.redaction} · ${fmtBytes(item.size_bytes)}`)),
+    ...events.map((item) => evidenceBlock("事件", item.name, item.message || item.level)),
+    ...diffs.map((item) => evidenceBlock("状态", `${item.operation} ${item.entity_type}`, item.entity_id)),
+  ];
+  el.evidenceList.innerHTML = blocks.length ? blocks.join("") : "<div class=\"evidence-item\"><strong>无阶段证据</strong><span>本阶段没有关联 artifact/event/state diff。</span></div>";
+}
+
+function renderGraph() {
+  const graph = state.currentGraph || {};
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  el.graphSummary.textContent = `${nodes.length} 节点`;
+  const width = Math.max(420, el.graph.clientWidth || 420);
+  const height = 430;
+  el.graph.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  el.graph.innerHTML = "";
+  if (!nodes.length) return;
+
+  const positioned = nodes.map((node, index) => ({
+    ...node,
+    x: 24 + (index % 4) * Math.max(96, (width - 60) / 4),
+    y: 40 + Math.floor(index / 4) * 64,
+  }));
+  const byId = new Map(positioned.map((node) => [node.id, node]));
+  for (const edge of edges) {
+    const from = byId.get(edge.from || edge.source);
+    const to = byId.get(edge.to || edge.target);
+    if (!from || !to) continue;
+    el.graph.append(svg("path", {
+      d: `M${from.x + 82},${from.y + 12} C${from.x + 112},${from.y + 12} ${to.x - 24},${to.y + 12} ${to.x},${to.y + 12}`,
+      fill: "none",
+      stroke: "#53606a",
+      "stroke-width": "1.2",
+    }));
+  }
+  for (const node of positioned) {
+    const group = svg("g", {});
+    const rect = svg("rect", {
+      x: node.x,
+      y: node.y,
+      width: 92,
+      height: 26,
+      rx: 5,
+      fill: statusColor(node.status),
+      stroke: "#dce5ea33",
+    });
+    const text = svg("text", {
+      x: node.x + 7,
+      y: node.y + 17,
+      fill: "#101214",
+      "font-size": "10",
+    });
+    text.textContent = short(node.label, 13);
+    group.append(rect, text);
+    el.graph.append(group);
+  }
+}
+
+function replayPipeline() {
+  clearReplay();
+  const cards = [...document.querySelectorAll(".stage-card")];
+  if (!cards.length) return;
+  const speed = Math.max(0.5, Number(el.speed.value || 1));
+  cards.forEach((card) => card.classList.add("replay-hidden"));
+  cards.forEach((card, index) => {
+    state.replayTimers.push(window.setTimeout(() => card.classList.remove("replay-hidden"), index * 420 / speed));
+  });
+  state.replayTimers.push(window.setTimeout(() => setStatus("流程重播完成。"), cards.length * 420 / speed + 100));
+  setStatus(`正在以 ${speed} 倍重播消息流程...`);
+}
+
+function activeStage() {
+  return (state.currentTimeline?.stages || []).find((stage) => stage.id === state.activeStageId);
+}
+
+function evidenceBlock(type, title, body) {
+  return `
+    <div class="evidence-item">
+      <strong>${escapeHtml(type)} · ${escapeHtml(title)}</strong>
+      <code>${escapeHtml(body || "-")}</code>
+    </div>
+  `;
+}
+
+function renderEmpty() {
+  clearReplay();
+  el.traceTitle.textContent = "暂无消息记录";
+  el.traceReason.textContent = "等待新的飞书或本地消息进入系统。";
+  el.traceMetrics.innerHTML = "";
+  el.pipeline.innerHTML = "";
+  el.stageDetail.innerHTML = "";
+  el.evidenceList.innerHTML = "";
+  el.graph.innerHTML = "";
+}
+
+function traceSearchText(trace) {
+  const attrs = attrsOf(trace);
+  return [trace.status, trace.workflow_type, trace.summary, attrs.intent, attrs.provider_name].join(" ").toLowerCase();
+}
+
+function attrsOf(trace) {
+  return trace && typeof trace.attrs === "object" ? trace.attrs : {};
+}
+
+function summaryText() {
+  if (!state.summary) return `已加载 ${state.traces.length} 条消息记录。`;
+  return `已加载 ${state.traces.length} 条消息记录。平均耗时 ${fmtMs(state.summary.avg_duration_ms)}，模型平均 ${fmtMs(state.summary.provider_latency_avg_ms)}，失败 ${state.summary.failed_trace_count} 次。`;
+}
+
 function setStatus(message, mode = "") {
   el.status.textContent = message;
   el.status.className = mode ? `status ${mode}` : "status";
 }
 
+function showError(error) {
+  setStatus(error.message || String(error), "error");
+}
+
+function clearReplay() {
+  state.replayTimers.forEach((timer) => window.clearTimeout(timer));
+  state.replayTimers = [];
+}
+
+function labelFor(status) {
+  return statusLabel[status] || status || "-";
+}
+
 function fmtMs(value) {
   if (value === null || value === undefined) return "-";
-  return `${value}ms`;
+  return `${Math.round(Number(value))}ms`;
 }
 
 function fmtBytes(value) {
@@ -68,231 +420,6 @@ function short(value, limit = 80) {
   return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
 }
 
-function attrsOf(trace) {
-  return trace && typeof trace.attrs === "object" ? trace.attrs : {};
-}
-
-function traceSearchText(trace) {
-  const attrs = attrsOf(trace);
-  return [
-    trace.status,
-    trace.workflow_type,
-    trace.summary,
-    attrs.intent,
-    attrs.provider_name,
-    attrs.risk_level,
-  ].join(" ").toLowerCase();
-}
-
-async function loadTraces() {
-  setStatus("Loading traces...");
-  const data = await api("/api/v2/observability/traces?limit=20");
-  state.traces = data.items || [];
-  renderTraceList();
-  if (!state.selectedTraceId && state.traces.length) {
-    await selectTrace(state.traces[0].trace_id);
-  } else if (state.selectedTraceId) {
-    await selectTrace(state.selectedTraceId);
-  } else {
-    renderEmpty();
-  }
-  setStatus(`Loaded ${state.traces.length} trace(s).`);
-}
-
-async function selectTrace(traceId) {
-  state.selectedTraceId = traceId;
-  const [detail, timeline, graph, artifacts] = await Promise.all([
-    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}`),
-    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}/timeline`),
-    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}/graph`),
-    api(`/api/v2/observability/traces/${encodeURIComponent(traceId)}/artifacts`),
-  ]);
-  state.selectedDetail = detail;
-  renderTraceList();
-  renderKpi(detail);
-  renderTimeline(timeline);
-  renderContextLens(detail);
-  renderArtifacts(artifacts);
-  renderGraph(graph);
-}
-
-function renderTraceList() {
-  const query = state.filter.trim().toLowerCase();
-  const traces = query ? state.traces.filter((trace) => traceSearchText(trace).includes(query)) : state.traces;
-  el.traceCount.textContent = `${traces.length}`;
-  el.traceList.innerHTML = "";
-  for (const trace of traces) {
-    const attrs = attrsOf(trace);
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = `trace-row ${trace.trace_id === state.selectedTraceId ? "active" : ""}`;
-    row.addEventListener("click", () => selectTrace(trace.trace_id).catch(showError));
-    row.innerHTML = `
-      <span class="pill ${trace.status}">${trace.status}</span>
-      <span>
-        <span class="row-title">${escapeHtml(trace.workflow_type)}</span>
-        <span class="row-sub">${escapeHtml(attrs.intent || trace.summary || trace.trace_id)}</span>
-      </span>
-      <span class="row-time">${escapeHtml(fmtTime(trace.started_at))}<br>${escapeHtml(fmtMs(trace.duration_ms))}</span>
-    `;
-    el.traceList.append(row);
-  }
-}
-
-function renderKpi(detail) {
-  const trace = detail.trace;
-  const attrs = attrsOf(trace);
-  el.selectedTrace.textContent = trace.trace_id;
-  const items = [
-    ["trace_id", trace.trace_id],
-    ["workflow", trace.workflow_type],
-    ["status", trace.status],
-    ["duration", fmtMs(trace.duration_ms)],
-    ["capture", trace.capture_id || "-"],
-    ["agent_run", trace.agent_run_id || "-"],
-    ["provider", attrs.provider_name || "-"],
-    ["model", attrs.model || "-"],
-    ["intent", attrs.intent || "-"],
-    ["confidence", attrs.confidence ?? "-"],
-    ["capsules", attrs.capsule_count ?? "-"],
-    ["confirmation", attrs.confirmation_id || "-"],
-  ];
-  el.kpi.innerHTML = items
-    .map(([label, value]) => `<div class="kpi"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`)
-    .join("");
-}
-
-function renderTimeline(data) {
-  el.timeline.innerHTML = "";
-  const sorted = [...(data.lanes || [])].sort((a, b) => lanes.indexOf(a.name) - lanes.indexOf(b.name));
-  for (const lane of sorted) {
-    const row = document.createElement("div");
-    row.className = "lane";
-    row.innerHTML = `<div class="lane-name">${escapeHtml(lane.name)}</div><div class="lane-track"></div>`;
-    const track = row.querySelector(".lane-track");
-    for (const span of lane.spans || []) {
-      const bar = document.createElement("button");
-      bar.type = "button";
-      bar.className = `span-bar ${span.status}`;
-      bar.style.left = `${span.offset_percent}%`;
-      bar.style.width = `${span.width_percent}%`;
-      bar.style.background = `var(--${lane.name}, var(--accent))`;
-      bar.textContent = `${span.name} ${fmtMs(span.duration_ms)}`;
-      bar.title = `${span.name} | ${span.status} | ${fmtMs(span.duration_ms)}`;
-      bar.addEventListener("click", () => renderSpanDetail(span));
-      track.append(bar);
-    }
-    el.timeline.append(row);
-  }
-}
-
-function renderContextLens(detail) {
-  const artifact = (detail.artifacts || []).find((item) => item.kind === "context_v2");
-  if (!artifact) {
-    el.contextSummary.textContent = "No context artifact";
-    el.contextLens.innerHTML = "";
-    return;
-  }
-  const payload = artifact.payload_json || {};
-  const capsules = payload.capsules || [];
-  el.contextSummary.textContent = `${capsules.length} capsule(s), ${payload.provider_request_bytes || "-"} bytes`;
-  el.contextLens.innerHTML = capsules
-    .map((capsule) => `
-      <div class="capsule">
-        <strong>${escapeHtml(capsule.domain || "-")}</strong>
-        <span>${escapeHtml(capsule.capsule_id || "-")}</span>
-        <span>${capsule.rendered ? "rendered" : "skipped"}</span>
-        <span>${escapeHtml(`facts ${capsule.facts_kept || 0}/${capsule.facts_total || 0}`)}</span>
-      </div>
-    `)
-    .join("");
-}
-
-function renderSpanDetail(span) {
-  el.detailSummary.textContent = `${span.name} / ${span.status}`;
-  el.spanDetail.textContent = JSON.stringify(span, null, 2);
-}
-
-function renderArtifacts(data) {
-  const artifacts = data.artifacts || [];
-  const diffs = data.state_diffs || [];
-  const events = data.events || [];
-  el.artifactSummary.textContent = `${artifacts.length} artifacts, ${diffs.length} diffs`;
-  const artifactHtml = artifacts.map((item) => `
-    <div class="artifact">
-      <strong>${escapeHtml(item.kind)}</strong> <span>${escapeHtml(item.label)}</span><br>
-      <code>${escapeHtml(item.redaction)} ${escapeHtml(item.payload_hash || "")} ${escapeHtml(fmtBytes(item.size_bytes))}</code>
-    </div>
-  `);
-  const diffHtml = diffs.map((item) => `
-    <div class="artifact">
-      <strong>${escapeHtml(item.operation)}</strong> <span>${escapeHtml(item.entity_type)} ${escapeHtml(item.entity_id)}</span>
-    </div>
-  `);
-  const eventHtml = events.map((item) => `
-    <div class="artifact">
-      <strong>${escapeHtml(item.level)}</strong> <span>${escapeHtml(item.name)} ${escapeHtml(item.message || "")}</span>
-    </div>
-  `);
-  el.artifactList.innerHTML = [...artifactHtml, ...diffHtml, ...eventHtml].join("");
-}
-
-function renderGraph(graph) {
-  const nodes = graph.nodes || [];
-  const edges = graph.edges || [];
-  el.graphSummary.textContent = `${nodes.length} nodes`;
-  const width = Math.max(420, el.graph.clientWidth || 420);
-  const height = 320;
-  el.graph.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  el.graph.innerHTML = "";
-  if (!nodes.length) return;
-
-  const laneOrder = new Map(lanes.map((lane, index) => [lane, index]));
-  const positioned = nodes.map((node, index) => {
-    const laneIndex = laneOrder.has(node.lane) ? laneOrder.get(node.lane) : lanes.length;
-    return {
-      ...node,
-      x: 38 + Math.min(width - 92, index * 78),
-      y: 34 + (laneIndex % 8) * 34,
-    };
-  });
-  const byId = new Map(positioned.map((node) => [node.id, node]));
-
-  for (const edge of edges) {
-    const from = byId.get(edge.from);
-    const to = byId.get(edge.to);
-    if (!from || !to) continue;
-    const path = svg("path", {
-      d: `M${from.x + 42},${from.y + 10} C${from.x + 68},${from.y + 10} ${to.x - 20},${to.y + 10} ${to.x},${to.y + 10}`,
-      fill: "none",
-      stroke: "#53606a",
-      "stroke-width": "1.2",
-    });
-    el.graph.append(path);
-  }
-  for (const node of positioned) {
-    const group = svg("g", {});
-    const rect = svg("rect", {
-      x: node.x,
-      y: node.y,
-      width: 84,
-      height: 22,
-      rx: 5,
-      fill: statusColor(node.status),
-      stroke: "#dce5ea33",
-    });
-    const text = svg("text", {
-      x: node.x + 7,
-      y: node.y + 15,
-      fill: "#101214",
-      "font-size": "10",
-    });
-    text.textContent = short(node.label, 12);
-    group.append(rect, text);
-    el.graph.append(group);
-  }
-}
-
 function statusColor(status) {
   return {
     ok: "#4fbf7f",
@@ -310,15 +437,6 @@ function svg(name, attrs) {
   return node;
 }
 
-function renderEmpty() {
-  el.kpi.innerHTML = "";
-  el.timeline.innerHTML = "";
-  el.contextLens.innerHTML = "";
-  el.artifactList.innerHTML = "";
-  el.spanDetail.textContent = "";
-  el.graph.innerHTML = "";
-}
-
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -327,18 +445,20 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function showError(error) {
-  setStatus(error.message || String(error), "error");
-}
-
 el.tokenInput.value = state.token;
+el.live.checked = state.live;
 el.tokenForm.addEventListener("submit", (event) => {
   event.preventDefault();
   state.token = el.tokenInput.value.trim();
-  window.localStorage.setItem("observability_admin_token", state.token);
+  window.sessionStorage.setItem("observability_admin_token", state.token);
   loadTraces().catch(showError);
 });
 el.refresh.addEventListener("click", () => loadTraces().catch(showError));
+el.replay.addEventListener("click", replayPipeline);
+el.live.addEventListener("change", () => {
+  state.live = el.live.checked;
+  setStatus(state.live ? "实时刷新已开启。" : "实时刷新已暂停。");
+});
 el.filter.addEventListener("input", () => {
   state.filter = el.filter.value;
   renderTraceList();
@@ -347,3 +467,9 @@ el.filter.addEventListener("input", () => {
 if (state.token) {
   loadTraces().catch(showError);
 }
+
+window.setInterval(() => {
+  if (state.live && state.token) {
+    loadTraces({quiet: true}).catch(showError);
+  }
+}, 2500);

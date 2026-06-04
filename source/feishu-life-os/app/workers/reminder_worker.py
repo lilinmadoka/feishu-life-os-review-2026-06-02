@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from app.adapters.feishu_client import FeishuClient
 from app.adapters.pushover_client import PushoverClient, pushover_tag_for_target
 from app.config import get_settings
+from app.core.observability import NullTraceEmitter, TraceEmitter
 from app.core.store import StateStore
 from app.database import Repository, new_id, utcnow_iso
 from app.models import ActionRecord, ActionStatus, ActionUpdate
@@ -86,6 +87,7 @@ class ReminderWorker:
         push: StrongPushClient | None = None,
         poll_seconds: float = 60,
         now_provider: Callable[[], datetime] | None = None,
+        trace_emitter: TraceEmitter | None = None,
     ):
         self.repo = repo
         self.feishu = feishu
@@ -94,55 +96,80 @@ class ReminderWorker:
         self.push = push
         self.poll_seconds = poll_seconds
         self.now_provider = now_provider or (lambda: datetime.now(self.tz))
+        self.trace = trace_emitter or NullTraceEmitter()
         StateStore(self.repo).migrate()
 
     async def run_once(self) -> int:
-        now = self.now_provider()
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=self.tz)
-        sent_count = 0
-        sent_count += await self._run_daily_review(now)
-        actions = self.repo.list_actions(statuses=ACTIVE_STATUSES, limit=500)
-        for action in actions:
-            if self._should_send_pre_strong_card(action, now):
-                open_id = self._open_id_for_action(action)
-                if not open_id:
-                    self._mark_pre_strong_card_error(action, "missing open_id")
-                    continue
-                try:
-                    response = await self.feishu.send_interactive_card(
-                        open_id,
-                        self._render_pre_strong_card(action),
-                    )
-                except Exception as exc:  # noqa: BLE001 - reminder failures are stored per action
-                    self._mark_pre_strong_card_error(action, str(exc) or repr(exc))
-                    continue
-                self._mark_pre_strong_card_sent(action, response)
-                sent_count += 1
-                continue
-            if not self._should_send(action, now):
-                continue
-            open_id = self._open_id_for_action(action)
-            if not open_id:
-                self._mark_error(action, "missing open_id")
-                continue
-            try:
-                response = await self._send_strong_reminder(
-                    open_id,
-                    action.title,
-                    action.remind_at,
-                    fallback_text=self._render_message(action),
-                    target_type="legacy_action",
-                    target_id=action.id,
-                )
-            except Exception as exc:  # noqa: BLE001 - reminder failures are stored per action
-                self._mark_error(action, str(exc) or repr(exc))
-                continue
-            self._mark_sent(action, response)
-            sent_count += 1
-        sent_count += await self._run_core_action_item_reminders(now)
-        sent_count += await self._run_core_schedule_reminders(now)
-        return sent_count
+        trace = self.trace.start_trace(
+            workflow_type="reminder_worker_run_once",
+            attrs={"poll_seconds": self.poll_seconds, "fallback_open_id": self.fallback_open_id},
+        )
+        trace_id = trace.trace_id
+        try:
+            now = self.now_provider()
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=self.tz)
+            sent_count = 0
+            with self.trace.span(trace_id, "worker.daily_review", component="worker", lane="external") as span:
+                daily_count = await self._run_daily_review(now)
+                sent_count += daily_count
+                span.add_attrs({"sent_count": daily_count})
+            with self.trace.span(trace_id, "worker.legacy_action_reminders", component="worker", lane="external") as span:
+                legacy_count = 0
+                actions = self.repo.list_actions(statuses=ACTIVE_STATUSES, limit=500)
+                for action in actions:
+                    if self._should_send_pre_strong_card(action, now):
+                        open_id = self._open_id_for_action(action)
+                        if not open_id:
+                            self._mark_pre_strong_card_error(action, "missing open_id")
+                            continue
+                        try:
+                            response = await self.feishu.send_interactive_card(
+                                open_id,
+                                self._render_pre_strong_card(action),
+                            )
+                        except Exception as exc:  # noqa: BLE001 - reminder failures are stored per action
+                            self._mark_pre_strong_card_error(action, str(exc) or repr(exc))
+                            continue
+                        self._mark_pre_strong_card_sent(action, response)
+                        sent_count += 1
+                        legacy_count += 1
+                        continue
+                    if not self._should_send(action, now):
+                        continue
+                    open_id = self._open_id_for_action(action)
+                    if not open_id:
+                        self._mark_error(action, "missing open_id")
+                        continue
+                    try:
+                        response = await self._send_strong_reminder(
+                            open_id,
+                            action.title,
+                            action.remind_at,
+                            fallback_text=self._render_message(action),
+                            target_type="legacy_action",
+                            target_id=action.id,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - reminder failures are stored per action
+                        self._mark_error(action, str(exc) or repr(exc))
+                        continue
+                    self._mark_sent(action, response)
+                    sent_count += 1
+                    legacy_count += 1
+                span.add_attrs({"due_count": len(actions), "sent_count": legacy_count})
+            with self.trace.span(trace_id, "worker.core_action_item_reminders", component="worker", lane="external") as span:
+                core_action_count = await self._run_core_action_item_reminders(now)
+                sent_count += core_action_count
+                span.add_attrs({"sent_count": core_action_count})
+            with self.trace.span(trace_id, "worker.core_schedule_reminders", component="worker", lane="external") as span:
+                core_schedule_count = await self._run_core_schedule_reminders(now)
+                sent_count += core_schedule_count
+                span.add_attrs({"sent_count": core_schedule_count})
+            self.trace.end_trace(trace_id, status="ok", summary="reminder worker run complete", attrs={"sent_count": sent_count})
+            return sent_count
+        except Exception as exc:
+            self.trace.end_trace(trace_id, status="failed", summary=str(exc))
+            raise
 
     async def run_forever(self) -> None:
         while True:

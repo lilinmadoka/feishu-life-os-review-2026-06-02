@@ -160,4 +160,5 @@ def get_core_orchestrator() -> CoreAgentOrchestrator:
         feishu=get_core_feishu_adapter(),
         tz=settings.tzinfo,
         trace_emitter=get_trace_emitter(),
+        runtime_mode=settings.core_agent_runtime_mode,
     )

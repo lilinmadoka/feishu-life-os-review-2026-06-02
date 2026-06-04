@@ -49,33 +49,43 @@ It intentionally excludes real environment files, local databases, attachments, 
 - Context capsule rendering applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
 - The accelerated observability sprint targets a local high-density dashboard, context lens, timeline/graph APIs, replay, state diffs, provider/policy/planner/tool visibility, and coarse Feishu/reminder instrumentation.
 - `Visual Observability` includes a best-effort SQLite trace layer, guarded read-only APIs, no-build static UI, Context Lens artifacts, timeline/graph/artifact endpoints, hardened redaction, and emitter entrypoints that must not fail the main request.
+- A feature-flagged model-first runtime path is now implemented behind `CORE_AGENT_RUNTIME_MODE=model_first`; default runtime remains `legacy`.
+- In model-first mode the model emits `AssistantDecision`, `DecisionPolicy` validates it, `PlannerRuntime` applies explicit decisions/patches only, and `ToolRouter` remains the concrete confirmation/execution boundary.
 
-## Current Architecture Concern
+## Current Architecture Status
 
 A 2026-06-05 review memo has been added: [Model-first architecture gap analysis](docs/12_MODEL_FIRST_ARCHITECTURE_GAP_ANALYSIS.md).
 
-The main concern is that the intended model-first design is not yet enforced. `Provider`, `PlannerService`, and legacy planning paths can still interpret user natural language after the model has produced a response. This can make the assistant feel rigid and rule-driven, especially around active `PlanDraft` follow-ups.
+The memo recorded that the intended model-first design was not yet enforced and that `Provider`, `PlannerService`, and legacy planning paths could still interpret user natural language after the model response.
 
-A follow-up redesign plan has been added: [Model-first runtime redesign plan](docs/13_MODEL_FIRST_RUNTIME_REDESIGN.md). It proposes `AssistantDecision`, `DecisionPolicy`, `PlannerRuntime`, `ConfirmationBoundary`, and `ToolExecutor` as the target runtime boundary.
+A follow-up redesign plan has been added: [Model-first runtime redesign plan](docs/13_MODEL_FIRST_RUNTIME_REDESIGN.md). Task 1 and the Task 2+3 runtime split are now represented in the sanitized source snapshot:
 
-Please review these two memos before proposing implementation changes. The question is how to enforce a single semantic authority while preserving confirmation safety, deterministic schedule calculation, and the existing RiskPolicy boundary.
+- `AssistantDecision`, `ProposalPatch`, `ConcreteOperation`, `ConfirmationAction`, and `UIAction` schemas.
+- `DecisionPolicy` validation for proposal creation/refinement, confirmation resolution, and write-operation boundaries.
+- `ModelDecisionProvider` wrapper plus native OpenAI-compatible/LM Studio `run_decision()` paths.
+- `PlannerRuntime`, which applies only `AssistantDecision` / explicit `ProposalPatch` data and does not parse `raw_text`.
+- `LegacyPlannerAdapter = PlannerService` compatibility path for the existing legacy runtime and fallback wrapping.
 
 ## Latest Local Validation
 
 Executed in the source workspace before export:
 
 ```text
+python -m pytest tests/test_decision_policy.py -q
+python -m pytest tests/test_model_first_runtime.py -q
+python -m pytest tests/test_core_agent_v2.py -q
 python -m pytest tests/test_observability.py -q
 python -m pytest -q
-python -m ruff check .
+python -m ruff check app tests
 ```
 
 Results:
 
 ```text
-tests/test_observability.py: 8 passed
-tests/test_context_compiler.py: 9 passed
-tests/test_core_agent_v2.py: 92 passed
-full pytest suite: 166 passed
-ruff check .: passed
+tests/test_decision_policy.py: 16 passed
+tests/test_model_first_runtime.py: 10 passed
+tests/test_core_agent_v2.py: 94 passed
+tests/test_observability.py: 9 passed
+full pytest suite: 195 passed
+ruff check app tests: passed
 ```

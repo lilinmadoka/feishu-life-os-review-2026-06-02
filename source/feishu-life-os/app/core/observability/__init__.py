@@ -1,4 +1,5 @@
 from app.core.observability.emitter import NullTraceEmitter, SQLiteTraceEmitter, TraceEmitter
+from app.core.observability.feishu_wrapper import ObservedFeishuNativeAdapter
 from app.core.observability.redaction import hash_identifier, redact_mapping, redact_text
 from app.core.observability.schemas import (
     StateDiff,
@@ -12,6 +13,7 @@ from app.core.observability.store import SQLiteTraceStore
 
 __all__ = [
     "NullTraceEmitter",
+    "ObservedFeishuNativeAdapter",
     "SQLiteTraceEmitter",
     "SQLiteTraceStore",
     "StateDiff",

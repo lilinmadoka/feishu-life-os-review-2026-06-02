@@ -23,6 +23,10 @@ source/feishu-life-os/
 - `app/core/policy.py`: proposal write-safety checks.
 - `app/core/tools.py`: concrete tool execution boundary and planning-only tool rejection.
 - `app/core/providers.py`: proposal-first behavior for complex planning requests.
+- `app/core/decision_schemas.py`: model-first `AssistantDecision` and related operation/patch/action schemas.
+- `app/core/decision_policy.py`: validation boundary for model-first decisions.
+- `app/core/decision_provider.py`: provider wrapper for native/fallback decision generation.
+- `app/core/planner_runtime.py`: feature-flagged model-first runtime that applies decisions without parsing raw text.
 - `app/core/context_builder.py`: proposal context summaries.
 - `app/core/context/`: Context Compiler, v2 context schemas, budget trimming, compressors, and provider render policy.
 - `app/core/observability/`: trace schemas, hardened redaction, SQLite store, and no-op/SQLite emitters.
@@ -82,33 +86,44 @@ source/feishu-life-os/
 - Added a no-build static dashboard under `app/static/observability/`; no npm build and no external CDN are required.
 - Removed the UI admin-token bypass path; observability routes remain admin-token protected.
 - Added tests for disabled no-op behavior, enabled trace capture, write-failure isolation, route protection, redaction, large/full artifact safeguards, and bad payload hardening.
+- Added flow-oriented observability UI updates, system health endpoint support, and local one-click startup scripts in the source snapshot.
 
-## Architecture Review Memo Added On 2026-06-05
+## Model-First Runtime Changes In This Snapshot
 
 - Added `docs/12_MODEL_FIRST_ARCHITECTURE_GAP_ANALYSIS.md`.
-- This memo records an observed model-first architecture gap without changing business code.
-- The memo highlights that `Provider`, `PlannerService`, and legacy planning paths can still interpret user natural language after model output.
-- The memo asks reviewers to evaluate how to enforce a single semantic authority while keeping confirmation cards, RiskPolicy, deterministic planning calculations, and ToolRouter execution boundaries intact.
-
-No source snapshot refresh was performed for this memo-only update.
+- Added `docs/13_MODEL_FIRST_RUNTIME_REDESIGN.md`.
+- Added `CORE_AGENT_RUNTIME_MODE=legacy|model_first`; default remains `legacy`.
+- Added `AssistantDecision`, `ProposalPatch`, `ConcreteOperation`, `ConfirmationAction`, and `UIAction`.
+- Added `ModelDecisionProvider`; it delegates to native `run_decision()` when available and marks legacy AgentResponse wrapping for observability when fallback is used.
+- Added native OpenAI-compatible and LM Studio `run_decision()` paths that request `AssistantDecision` JSON directly instead of legacy intent/entity extraction.
+- Added a model-first orchestrator branch: model decision -> `DecisionPolicy` -> `PlannerRuntime` -> existing `ToolRouter` confirmation/execution boundary.
+- Added `PlannerRuntime`; it accepts only model decisions and explicit proposal patches and does not infer kind/time/duration/byday from raw user text.
+- Kept `PlannerService` as the legacy implementation and exposed `LegacyPlannerAdapter = PlannerService` for compatibility.
+- Added tests proving proposal explanation does not mutate active drafts, explicit proposal patches mutate only declared fields, confirmation still executes through ToolRouter, and invalid query/write mixes are rejected.
 
 ## Validation Record
 
 Latest local checks before this export:
 
 ```text
+.\.venv\Scripts\python.exe -m pytest tests/test_decision_policy.py -q
+16 passed
+
+.\.venv\Scripts\python.exe -m pytest tests/test_model_first_runtime.py -q
+10 passed
+
 .\.venv\Scripts\python.exe -m pytest tests/test_core_agent_v2.py -q
-92 passed
+94 passed
 
 .\.venv\Scripts\python.exe -m pytest tests/test_context_compiler.py -q
 9 passed
 
 .\.venv\Scripts\python.exe -m pytest tests/test_observability.py -q
-8 passed
+9 passed
 
 .\.venv\Scripts\python.exe -m pytest -q
-166 passed
+195 passed
 
-.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff check app tests
 All checks passed!
 ```

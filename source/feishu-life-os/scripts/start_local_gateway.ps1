@@ -7,6 +7,10 @@ param(
 $root = Get-ProjectRoot
 $dirs = Initialize-GatewayDirs -Root $root
 Import-DotEnv -Root $root
+if ($env:LIFEOS_START_FULL_ENABLE_OBSERVABILITY -eq "true") {
+    $env:OBSERVABILITY_ENABLED = "true"
+    $env:OBSERVABILITY_CAPTURE_FULL_PAYLOAD = "false"
+}
 
 $python = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {

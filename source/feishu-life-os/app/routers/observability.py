@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -9,10 +14,17 @@ from fastapi.responses import HTMLResponse
 from app.config import get_settings
 from app.core.observability import SQLiteTraceStore
 from app.core.observability.schemas import TraceDetail
+from app.core.observability.ui_models import (
+    build_artifacts,
+    build_graph,
+    build_summary,
+    build_timeline,
+)
 from app.dependencies import get_observability_store
 
 router = APIRouter(prefix="/api/v2/observability", tags=["observability"])
 STATIC_ROOT = Path(__file__).resolve().parents[1] / "static" / "observability"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def require_admin_token(x_admin_token: str | None = Header(default=None)) -> None:
@@ -60,6 +72,45 @@ def get_trace(
     return detail.model_dump(mode="json")
 
 
+@router.get("/summary")
+def get_observability_summary(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: None = Depends(require_admin_token),
+    store: SQLiteTraceStore = Depends(get_observability_store),
+) -> dict[str, Any]:
+    details = [
+        detail
+        for trace in store.list_traces(limit=limit)
+        if (detail := store.get_trace(trace.trace_id)) is not None
+    ]
+    return build_summary(details)
+
+
+@router.get("/system")
+def get_observability_system(_: None = Depends(require_admin_token)) -> dict[str, Any]:
+    settings = get_settings()
+    lm_studio = _check_lm_studio(settings.lm_studio_base_url)
+    provider_ready = settings.core_agent_provider != "lm_studio_provider" or lm_studio["status"] == "ok"
+    return {
+        "fastapi": {"status": "ok", "url": "http://127.0.0.1:8000"},
+        "provider": {
+            "status": "ok" if provider_ready else "unavailable",
+            "name": settings.core_agent_provider,
+            "model": settings.lm_studio_model if settings.core_agent_provider == "lm_studio_provider" else None,
+        },
+        "lm_studio": lm_studio,
+        "observability": {
+            "enabled": settings.observability_enabled,
+            "capture_full_payload": settings.observability_capture_full_payload,
+            "ui_enabled": settings.observability_ui_enabled,
+        },
+        "processes": {
+            name: _tracked_process_status(name)
+            for name in ("fastapi", "cloudflared", "reminder_worker", "codex_worker")
+        },
+    }
+
+
 @router.get("/traces/{trace_id}/timeline")
 def get_trace_timeline(
     trace_id: str,
@@ -67,34 +118,7 @@ def get_trace_timeline(
     store: SQLiteTraceStore = Depends(get_observability_store),
 ) -> dict[str, Any]:
     detail = _get_detail_or_404(store, trace_id)
-    spans = detail.spans
-    if not spans:
-        return {"trace_id": trace_id, "lanes": [], "duration_ms": detail.trace.duration_ms or 0}
-    first = min(span.started_at for span in spans)
-    last = max((span.ended_at or span.started_at) for span in spans)
-    total_ms = max(1, int((last - first).total_seconds() * 1000))
-    lanes: dict[str, list[dict[str, Any]]] = {}
-    for span in spans:
-        start_ms = max(0, int((span.started_at - first).total_seconds() * 1000))
-        duration_ms = span.duration_ms or max(0, int(((span.ended_at or span.started_at) - span.started_at).total_seconds() * 1000))
-        lanes.setdefault(span.lane, []).append(
-            {
-                "span_id": span.span_id,
-                "name": span.name,
-                "component": span.component,
-                "status": span.status,
-                "start_ms": start_ms,
-                "duration_ms": duration_ms,
-                "offset_percent": round(start_ms / total_ms * 100, 2),
-                "width_percent": max(0.8, round(max(1, duration_ms) / total_ms * 100, 2)),
-                "attrs": span.attrs,
-            }
-        )
-    return {
-        "trace_id": trace_id,
-        "duration_ms": detail.trace.duration_ms or total_ms,
-        "lanes": [{"name": lane, "spans": lane_spans} for lane, lane_spans in lanes.items()],
-    }
+    return build_timeline(detail)
 
 
 @router.get("/traces/{trace_id}/graph")
@@ -104,23 +128,7 @@ def get_trace_graph(
     store: SQLiteTraceStore = Depends(get_observability_store),
 ) -> dict[str, Any]:
     detail = _get_detail_or_404(store, trace_id)
-    nodes = [
-        {
-            "id": span.span_id,
-            "label": span.name,
-            "lane": span.lane,
-            "component": span.component,
-            "status": span.status,
-            "duration_ms": span.duration_ms,
-        }
-        for span in detail.spans
-    ]
-    edges = [
-        {"from": span.parent_span_id, "to": span.span_id}
-        for span in detail.spans
-        if span.parent_span_id
-    ]
-    return {"trace_id": trace_id, "nodes": nodes, "edges": edges}
+    return build_graph(detail)
 
 
 @router.get("/traces/{trace_id}/artifacts")
@@ -130,12 +138,7 @@ def get_trace_artifacts(
     store: SQLiteTraceStore = Depends(get_observability_store),
 ) -> dict[str, Any]:
     detail = _get_detail_or_404(store, trace_id)
-    return {
-        "trace_id": trace_id,
-        "artifacts": [artifact.model_dump(mode="json") for artifact in detail.artifacts],
-        "state_diffs": [diff.model_dump(mode="json") for diff in detail.state_diffs],
-        "events": [event.model_dump(mode="json") for event in detail.events],
-    }
+    return build_artifacts(detail)
 
 
 @router.get("/ui", response_class=HTMLResponse)
@@ -152,3 +155,65 @@ def observability_ui(_: None = Depends(require_ui_admin_token)) -> HTMLResponse:
     html = html.replace("/*__OBSERVABILITY_CSS__*/", css)
     html = html.replace("//__OBSERVABILITY_JS__", js)
     return HTMLResponse(html)
+
+
+def _check_lm_studio(base_url: str) -> dict[str, Any]:
+    url = f"{base_url.rstrip('/')}/models"
+    try:
+        request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            raw = response.read().decode("utf-8")
+        data = json.loads(raw)
+        models = data.get("data") if isinstance(data, dict) else None
+        model_count = len(models) if isinstance(models, list) else 0
+        loaded_models = [
+            str(item.get("id"))
+            for item in models[:10]
+            if isinstance(item, dict) and item.get("id")
+        ] if isinstance(models, list) else []
+        return {
+            "status": "ok",
+            "base_url": base_url,
+            "model_count": model_count,
+            "loaded_models": loaded_models,
+        }
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        return {
+            "status": "unavailable",
+            "base_url": base_url,
+            "error_class": exc.__class__.__name__,
+            "message": str(exc)[:180],
+        }
+
+
+def _tracked_process_status(name: str) -> dict[str, Any]:
+    pid_path = PROJECT_ROOT / ".data" / "pids" / f"{name}.pid"
+    if not pid_path.exists():
+        return {"status": "stopped"}
+    try:
+        pid = int(pid_path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return {"status": "unknown", "reason": "invalid_pid_file"}
+    return {"status": "running" if _pid_exists(pid) else "stopped", "pid": pid}
+
+
+def _pid_exists(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return str(pid) in result.stdout

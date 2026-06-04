@@ -7,9 +7,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.context import ContextCompiler
+from app.core.decision_policy import DecisionPolicy, DecisionPolicyViolation
+from app.core.decision_provider import DecisionProvider, ModelDecisionProvider
 from app.core.feishu_native import FeishuNativeAdapter
-from app.core.observability import NullTraceEmitter, TraceEmitter
+from app.core.observability import NullTraceEmitter, ObservedFeishuNativeAdapter, TraceEmitter
 from app.core.planner import PlannerService
+from app.core.planner_runtime import PlannerRuntime
 from app.core.policy import PolicyViolation, RiskPolicy
 from app.core.providers import (
     CoreAgentProvider,
@@ -31,15 +34,29 @@ class CoreAgentOrchestrator:
         feishu: FeishuNativeAdapter,
         tz: ZoneInfo,
         trace_emitter: TraceEmitter | None = None,
+        runtime_mode: str = "legacy",
+        decision_provider: DecisionProvider | None = None,
+        decision_policy: DecisionPolicy | None = None,
+        planner_runtime: PlannerRuntime | None = None,
     ):
         self.store = store
         self.provider = provider
         self.feishu = feishu
         self.tz = tz
+        self.runtime_mode = runtime_mode if runtime_mode in {"legacy", "model_first"} else "legacy"
         self.trace = trace_emitter or NullTraceEmitter()
-        self.router = ToolRouter(store, feishu, tz)
-        self.planner = PlannerService(store, feishu, tz, self.router)
+        self.observed_feishu = ObservedFeishuNativeAdapter(feishu, self.trace)
+        self.router = ToolRouter(store, self.observed_feishu, tz)
+        self.planner = PlannerService(store, self.observed_feishu, tz, self.router)
         self.policy = RiskPolicy()
+        self.decision_provider = decision_provider or ModelDecisionProvider(provider)
+        self.decision_policy = decision_policy or DecisionPolicy()
+        self.planner_runtime = planner_runtime or PlannerRuntime(
+            store,
+            self.observed_feishu,
+            tz,
+            legacy_adapter=self.planner,
+        )
         self.context_compiler = ContextCompiler(store, tz)
 
     async def process_capture(self, capture_input: CaptureIn) -> OrchestratorResult:
@@ -101,6 +118,13 @@ class CoreAgentOrchestrator:
                     redaction="summary_only",
                     payload_json=context_summary["artifact"],
                 )
+                self.trace.artifact(
+                    trace_id,
+                    kind="context_lens",
+                    label="context_v2_summary",
+                    redaction="summary_only",
+                    payload_json=context_summary["artifact"],
+                )
 
             run = self.store.create_agent_run(
                 capture_id=capture.id,
@@ -110,6 +134,16 @@ class CoreAgentOrchestrator:
             )
             self.trace.update_trace(trace_id, agent_run_id=run.id)
             started = time.perf_counter()
+
+            if self.runtime_mode == "model_first":
+                return await self._process_capture_model_first(
+                    capture=capture,
+                    request=request,
+                    run=run,
+                    trace_id=trace_id,
+                    started=started,
+                    context_v2=context_v2,
+                )
 
             try:
                 with self.trace.span(
@@ -127,6 +161,7 @@ class CoreAgentOrchestrator:
                             "tool_call_count": len(response.tool_calls),
                             "tool_names": [call.tool_name for call in response.tool_calls],
                             "has_assistant_proposal": response.assistant_proposal is not None,
+                            "reply_length": len(response.reply_to_user or ""),
                         }
                     )
                     self.trace.artifact(
@@ -152,7 +187,7 @@ class CoreAgentOrchestrator:
                 self.store.update_capture_status(capture.id, ProcessedStatus.needs_review)
                 reply = "智能处理器不可用或返回结果不符合安全策略，已记录消息但不会自动处理。"
                 with self.trace.span(trace_id, "final_reply.complete_run", component="orchestrator", lane="state"):
-                    await self.feishu.send_text(capture.sender_id, reply)
+                    await self.observed_feishu.send_text(capture.sender_id, reply)
                 self._log_runtime(
                     {
                         "status": "failed",
@@ -263,7 +298,7 @@ class CoreAgentOrchestrator:
             with self.trace.span(trace_id, "final_reply.complete_run", component="orchestrator", lane="state") as final_span:
                 direct_reply_sent = any(result.get("tool_name") == "send_feishu_reply" for result in tool_results)
                 if not confirmation_id and not direct_reply_sent and not planning.card_sent:
-                    await self.feishu.send_text(capture.sender_id, final_reply)
+                    await self.observed_feishu.send_text(capture.sender_id, final_reply)
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 self.store.complete_agent_run(
                     run.id,
@@ -336,6 +371,289 @@ class CoreAgentOrchestrator:
         except Exception as exc:
             self.trace.end_trace(trace_id, status="failed", summary=str(exc))
             raise
+
+    async def _process_capture_model_first(
+        self,
+        *,
+        capture: Any,
+        request: dict[str, Any],
+        run: Any,
+        trace_id: str,
+        started: float,
+        context_v2: dict[str, Any],
+    ) -> OrchestratorResult:
+        try:
+            with self.trace.span(
+                trace_id,
+                "model_planner.run",
+                component="provider",
+                lane="model",
+                attrs={
+                    "provider_name": self.decision_provider.name,
+                    "model": getattr(self.decision_provider, "model", None),
+                    "semantic_authority": "model",
+                    "backend_semantic_fallback_used": False,
+                },
+            ) as provider_span:
+                decision = self.decision_provider.run_decision(request)
+                legacy_adapter_used = bool(getattr(self.decision_provider, "last_used_legacy_adapter", False))
+                provider_span.add_attrs(
+                    {
+                        "decision.action": decision.action,
+                        "decision.confidence": decision.confidence,
+                        "decision.referenced_context": list(decision.referenced_context),
+                        "candidate_operation_count": len(decision.candidate_operations),
+                        "legacy_planner_adapter_used": legacy_adapter_used,
+                        "backend_semantic_fallback_used": False,
+                    }
+                )
+                self.trace.artifact(
+                    trace_id,
+                    kind="assistant_decision",
+                    label="AssistantDecision summary",
+                    redaction="summary_only",
+                    payload_json=self._decision_output_summary(decision),
+                )
+
+            with self.trace.span(trace_id, "decision_policy.validate", component="policy", lane="guard") as policy_span:
+                self.decision_policy.validate(decision, store=self.store, sender_id=capture.sender_id, request=request)
+                policy_span.add_attrs(
+                    {
+                        "decision.action": decision.action,
+                        "candidate_operation_count": len(decision.candidate_operations),
+                        "semantic_authority": "model",
+                    }
+                )
+                self.trace.event(
+                    trace_id,
+                    name="decision_policy.validated",
+                    attrs={
+                        "decision.action": decision.action,
+                        "referenced_context": list(decision.referenced_context),
+                    },
+                )
+        except (CoreAgentProviderUnavailable, CoreAgentProviderError, DecisionPolicyViolation) as exc:
+            if isinstance(exc, DecisionPolicyViolation):
+                self.trace.event(trace_id, name="decision_policy.violation", level="warn", message=str(exc))
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            self.store.fail_agent_run(run.id, str(exc), latency_ms)
+            self.store.update_capture_status(capture.id, ProcessedStatus.needs_review)
+            reply = "模型决策无法安全执行，已记录但不会写入任何数据。"
+            with self.trace.span(trace_id, "final_reply.complete_run", component="orchestrator", lane="state"):
+                await self.observed_feishu.send_text(capture.sender_id, reply)
+            self._log_runtime(
+                {
+                    "status": "failed",
+                    "runtime_mode": "model_first",
+                    "capture_id": capture.id,
+                    "event_id": capture.source_event_id,
+                    "message_id": capture.source_message_id,
+                    "provider_name": self.provider.name,
+                    "agent_run_id": run.id,
+                    "used_fallback": self._is_fallback_provider(),
+                    "tool_calls": [],
+                    "reply_text": reply,
+                    "error": str(exc),
+                }
+            )
+            self.trace.end_trace(
+                trace_id,
+                status="failed",
+                summary=str(exc),
+                attrs={
+                    "capture_id": capture.id,
+                    "agent_run_id": run.id,
+                    "semantic_authority": "model",
+                    "backend_semantic_fallback_used": False,
+                },
+            )
+            return OrchestratorResult(capture_id=capture.id, agent_run_id=run.id, reply_text=reply)
+
+        with self.trace.span(trace_id, "planner_runtime.apply", component="planner", lane="planner") as planner_span:
+            planning = await self.planner_runtime.apply_decision(
+                decision,
+                request,
+                agent_run_id=run.id,
+                capture_id=capture.id,
+                sender_id=capture.sender_id,
+            )
+            legacy_adapter_used = bool(
+                planning.legacy_adapter_used or getattr(self.decision_provider, "last_used_legacy_adapter", False)
+            )
+            planner_span.add_attrs(
+                {
+                    "decision.action": decision.action,
+                    "proposal_id": planning.proposal_id,
+                    "confirmation_id": planning.confirmation_id,
+                    "tool_call_count": len(planning.tool_calls),
+                    "tool_names": [call.tool_name for call in planning.tool_calls],
+                    "card_sent": planning.card_sent,
+                    "semantic_authority": "model",
+                    "backend_semantic_fallback_used": False,
+                    "legacy_planner_adapter_used": legacy_adapter_used,
+                }
+            )
+            self.trace.artifact(
+                trace_id,
+                kind="planner",
+                label="PlannerRuntime outcome summary",
+                redaction="summary_only",
+                payload_json={
+                    "decision_action": decision.action,
+                    "proposal_id": planning.proposal_id,
+                    "confirmation_id": planning.confirmation_id,
+                    "tool_calls": self._tool_call_summary(planning.tool_calls),
+                    "tool_results": self._tool_result_summary(planning.tool_results),
+                    "reply_text": planning.reply_text,
+                    "card_sent": planning.card_sent,
+                    "legacy_planner_adapter_used": legacy_adapter_used,
+                },
+            )
+            if planning.proposal_id:
+                self.trace.state_diff(
+                    trace_id,
+                    entity_type="plan_draft",
+                    entity_id=planning.proposal_id,
+                    operation="upsert",
+                    after_summary={"proposal_id": planning.proposal_id, "runtime_mode": "model_first"},
+                )
+
+        tool_results = list(planning.tool_results)
+        tool_reply = planning.reply_text
+        confirmation_id = planning.confirmation_id
+        executed_calls = list(planning.tool_calls)
+        with self.trace.span(
+            trace_id,
+            "tool_router.execute_calls",
+            component="tool_router",
+            lane="execute",
+            status="running" if executed_calls else "skipped",
+            attrs={"tool_call_count": len(executed_calls), "tool_names": [call.tool_name for call in executed_calls]},
+        ) as router_span:
+            if executed_calls:
+                routed_results, routed_reply, routed_confirmation_id = await self.router.execute_calls(
+                    executed_calls,
+                    agent_run_id=run.id,
+                    capture_id=capture.id,
+                    sender_id=capture.sender_id,
+                )
+                tool_results.extend(routed_results)
+                tool_reply = routed_reply or tool_reply
+                confirmation_id = routed_confirmation_id or confirmation_id
+                router_span.add_attrs({"result_count": len(routed_results), "confirmation_id": routed_confirmation_id})
+                self.trace.artifact(
+                    trace_id,
+                    kind="tool_results",
+                    label="ToolRouter result summary",
+                    redaction="summary_only",
+                    payload_json={"results": self._tool_result_summary(routed_results), "reply_text": routed_reply},
+                )
+                if routed_confirmation_id:
+                    self.trace.state_diff(
+                        trace_id,
+                        entity_type="confirmation",
+                        entity_id=routed_confirmation_id,
+                        operation="create",
+                        after_summary={"status": "pending", "tool_call_count": len(executed_calls)},
+                    )
+                self._emit_tool_result_state_diffs(trace_id, routed_results)
+
+        final_reply = tool_reply or decision.reply_to_user or "已收到。"
+        with self.trace.span(trace_id, "final_reply.complete_run", component="orchestrator", lane="state") as final_span:
+            direct_reply_sent = any(result.get("tool_name") == "send_feishu_reply" for result in tool_results)
+            if not confirmation_id and not direct_reply_sent and not planning.card_sent:
+                await self.observed_feishu.send_text(capture.sender_id, final_reply)
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            self.store.complete_agent_run(
+                run.id,
+                output_json={
+                    "runtime_mode": "model_first",
+                    "assistant_decision": decision.model_dump(mode="json"),
+                    "planner_outcome": {
+                        "proposal_id": planning.proposal_id,
+                        "confirmation_id": confirmation_id,
+                        "legacy_planner_adapter_used": legacy_adapter_used,
+                        "backend_semantic_fallback_used": False,
+                    },
+                },
+                tool_calls_json=[call.model_dump(mode="json") for call in executed_calls],
+                latency_ms=latency_ms,
+            )
+            self.store.update_capture_status(capture.id, ProcessedStatus.processed)
+            final_span.add_attrs(
+                {
+                    "latency_ms": latency_ms,
+                    "confirmation_id": confirmation_id,
+                    "direct_reply_sent": direct_reply_sent,
+                    "reply_text": final_reply,
+                    "semantic_authority": "model",
+                    "decision.action": decision.action,
+                    "backend_semantic_fallback_used": False,
+                    "legacy_planner_adapter_used": legacy_adapter_used,
+                }
+            )
+            self.trace.state_diff(
+                trace_id,
+                entity_type="agent_run",
+                entity_id=run.id,
+                operation="complete",
+                after_summary={
+                    "status": "done",
+                    "runtime_mode": "model_first",
+                    "latency_ms": latency_ms,
+                    "tool_call_count": len(executed_calls),
+                    "confirmation_id": confirmation_id,
+                    "decision_action": decision.action,
+                },
+            )
+
+        self._log_runtime(
+            {
+                "status": "done",
+                "runtime_mode": "model_first",
+                "capture_id": capture.id,
+                "event_id": capture.source_event_id,
+                "message_id": capture.source_message_id,
+                "provider_name": self.provider.name,
+                "decision_action": decision.action,
+                "agent_run_id": run.id,
+                "used_fallback": self._is_fallback_provider(),
+                "legacy_planner_adapter_used": legacy_adapter_used,
+                "tool_calls": [call.model_dump(mode="json") for call in executed_calls],
+                "proposal_id": planning.proposal_id,
+                "reply_text": final_reply,
+            }
+        )
+        self.trace.end_trace(
+            trace_id,
+            status="ok",
+            summary=f"{decision.action} processed",
+            attrs={
+                "capture_id": capture.id,
+                "agent_run_id": run.id,
+                "provider_name": self.provider.name,
+                "model": getattr(self.provider, "model", None),
+                "runtime_mode": "model_first",
+                "semantic_authority": "model",
+                "decision.action": decision.action,
+                "decision.referenced_context": list(decision.referenced_context),
+                "backend_semantic_fallback_used": False,
+                "legacy_planner_adapter_used": legacy_adapter_used,
+                "confidence": decision.confidence,
+                "tool_call_count": len(executed_calls),
+                "confirmation_id": confirmation_id,
+                "proposal_id": planning.proposal_id,
+                "capsule_count": len(context_v2.get("capsules") or []),
+            },
+        )
+        return OrchestratorResult(
+            capture_id=capture.id,
+            agent_run_id=run.id,
+            reply_text=final_reply,
+            tool_results=tool_results,
+            confirmation_id=confirmation_id,
+            proposal_id=planning.proposal_id,
+        )
 
     def _is_fallback_provider(self) -> bool:
         return self.provider.name in {"mock_provider", "rules_provider", "rules_fallback"}
@@ -422,10 +740,42 @@ class CoreAgentOrchestrator:
             "intent": response.intent,
             "confidence": response.confidence,
             "reply_to_user": response.reply_to_user,
+            "reply_length": len(response.reply_to_user or ""),
             "tool_names": [call.tool_name for call in response.tool_calls],
             "tool_call_count": len(response.tool_calls),
             "has_assistant_proposal": response.assistant_proposal is not None,
             "assistant_proposal": self._proposal_summary(response.assistant_proposal) if response.assistant_proposal else None,
+        }
+
+    def _decision_output_summary(self, decision: Any) -> dict[str, Any]:
+        return {
+            "decision_schema_version": decision.decision_schema_version,
+            "action": decision.action,
+            "confidence": decision.confidence,
+            "reasoning_summary": decision.reasoning_summary,
+            "reply_length": len(decision.reply_to_user or ""),
+            "referenced_context": list(decision.referenced_context),
+            "proposal": self._proposal_summary(decision.proposal) if decision.proposal else None,
+            "proposal_patch": {
+                "plan_draft_id": decision.proposal_patch.plan_draft_id,
+                "patch_type": decision.proposal_patch.patch_type,
+                "field_keys": sorted(decision.proposal_patch.fields.keys()),
+                "missing_info": decision.proposal_patch.missing_info,
+                "confidence": decision.proposal_patch.confidence,
+            }
+            if decision.proposal_patch
+            else None,
+            "confirmation_action": decision.confirmation_action.model_dump(mode="json") if decision.confirmation_action else None,
+            "candidate_operations": [
+                {
+                    "operation": operation.operation,
+                    "risk_level": operation.risk_level,
+                    "requires_confirmation": operation.requires_confirmation,
+                    "argument_keys": sorted(operation.arguments.keys()),
+                }
+                for operation in decision.candidate_operations
+            ],
+            "uncertainty": list(decision.uncertainty),
         }
 
     def _proposal_summary(self, proposal: Any) -> dict[str, Any]:

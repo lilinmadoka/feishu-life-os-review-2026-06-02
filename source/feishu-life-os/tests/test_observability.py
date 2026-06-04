@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -9,6 +10,8 @@ from app.config import get_settings
 from app.core.feishu_native import MockFeishuNativeAdapter
 from app.core.observability import SQLiteTraceEmitter, SQLiteTraceStore
 from app.core.observability.redaction import redact_mapping
+from app.core.observability.schemas import TraceDetail, TraceRecord, TraceSpan
+from app.core.observability.ui_models import build_timeline
 from app.core.orchestrator import CoreAgentOrchestrator
 from app.core.providers import MockAgentProvider
 from app.core.schemas import CaptureIn
@@ -82,6 +85,7 @@ def test_enabled_observability_records_trace_and_spans_for_agent_message(monkeyp
         "capture.create",
         "context.compile",
         "provider.run",
+        "feishu.send_text",
         "policy.validate_response",
         "planner.plan_response",
         "tool_router.execute_calls",
@@ -91,18 +95,45 @@ def test_enabled_observability_records_trace_and_spans_for_agent_message(monkeyp
 
     artifacts = client.get(f"/api/v2/observability/traces/{trace_id}/artifacts", headers={"x-admin-token": "admin-token"}).json()
     context_artifact = next(item for item in artifacts["artifacts"] if item["kind"] == "context_v2")
+    context_lens_artifact = next(item for item in artifacts["artifacts"] if item["kind"] == "context_lens")
     provider_artifact = next(item for item in artifacts["artifacts"] if item["kind"] == "provider_output")
     assert context_artifact["redaction"] == "summary_only"
+    assert context_lens_artifact["redaction"] == "summary_only"
     assert "capsules_generated" in context_artifact["payload_json"]
     assert "capsules" in context_artifact["payload_json"]
     assert provider_artifact["payload_json"]["intent"] == "query_today"
     assert provider_artifact["payload_json"]["tool_names"] == ["query_today"]
+    assert "prompt" not in json.dumps(provider_artifact, ensure_ascii=False).lower()
     assert any(diff["entity_type"] == "agent_run" and diff["operation"] == "complete" for diff in artifacts["state_diffs"])
 
     timeline = client.get(f"/api/v2/observability/traces/{trace_id}/timeline", headers={"x-admin-token": "admin-token"}).json()
     graph = client.get(f"/api/v2/observability/traces/{trace_id}/graph", headers={"x-admin-token": "admin-token"}).json()
+    summary = client.get("/api/v2/observability/summary", headers={"x-admin-token": "admin-token"}).json()
+    system = client.get("/api/v2/observability/system", headers={"x-admin-token": "admin-token"}).json()
     assert {lane["name"] for lane in timeline["lanes"]} >= {"ingest", "context", "model", "guard", "planner", "execute", "state"}
+    assert [stage["id"] for stage in timeline["stages"]] == [
+        "ingest",
+        "context",
+        "model",
+        "guard",
+        "planner",
+        "execute",
+        "reply",
+    ]
+    assert any(stage["id"] == "model" and stage["status"] == "ok" for stage in timeline["stages"])
+    assert "critical_path_ms" in timeline
+    assert timeline["status_counts"]
+    assert timeline["kpis"]["intent"] == "query_today"
     assert graph["nodes"]
+    assert all("source" in edge and "target" in edge for edge in graph["edges"])
+    assert summary["recent_trace_count"] == 1
+    assert summary["provider_latency_avg_ms"] is not None
+    dumped_system = json.dumps(system, ensure_ascii=False)
+    assert system["fastapi"]["status"] == "ok"
+    assert "lm_studio" in system
+    assert "processes" in system
+    assert "admin-token" not in dumped_system
+    assert "ADMIN_API_TOKEN" not in dumped_system
 
 
 def test_observability_ui_requires_admin_token_and_serves_static_dashboard(monkeypatch, tmp_path):
@@ -114,13 +145,19 @@ def test_observability_ui_requires_admin_token_and_serves_static_dashboard(monke
     response = client.get("/api/v2/observability/ui", headers={"x-admin-token": "admin-token"})
 
     assert response.status_code == 200
-    assert "Visual Observability" in response.text
+    assert "消息流程观测" in response.text
     assert "/api/v2/observability/traces" in response.text
+    assert "/api/v2/observability/summary" in response.text
+    assert "/api/v2/observability/system" in response.text
+    assert "readBootstrapToken" in response.text
+    assert "history.replaceState" in response.text
+    assert "重播" in response.text
+    assert "实时" in response.text
     assert "https://" not in response.text
 
     query_response = client.get("/api/v2/observability/ui?admin_token=admin-token")
     assert query_response.status_code == 200
-    assert "Visual Observability" in query_response.text
+    assert "消息流程观测" in query_response.text
 
 
 def test_observability_routes_require_admin_token(monkeypatch, tmp_path):
@@ -129,6 +166,43 @@ def test_observability_routes_require_admin_token(monkeypatch, tmp_path):
     response = client.get("/api/v2/observability/traces")
 
     assert response.status_code == 403
+    assert client.get("/api/v2/observability/system").status_code == 403
+
+
+def test_timeline_stages_mark_provider_failure():
+    started_at = datetime.now(UTC)
+    detail = TraceDetail(
+        trace=TraceRecord(
+            trace_id="trace_stage_failure",
+            workflow_type="feishu_message",
+            status="failed",
+            started_at=started_at,
+            ended_at=started_at + timedelta(milliseconds=150),
+            duration_ms=150,
+            summary="LM Studio unavailable",
+        ),
+        spans=[
+            TraceSpan(
+                span_id="span_provider",
+                trace_id="trace_stage_failure",
+                name="provider.run",
+                component="provider",
+                lane="model",
+                status="failed",
+                started_at=started_at,
+                ended_at=started_at + timedelta(milliseconds=120),
+                duration_ms=120,
+                attrs={"error": "LM Studio unavailable"},
+            )
+        ],
+    )
+
+    timeline = build_timeline(detail)
+    model_stage = next(stage for stage in timeline["stages"] if stage["id"] == "model")
+
+    assert model_stage["status"] == "failed"
+    assert model_stage["error"] == "LM Studio unavailable"
+    assert model_stage["span_names"] == ["provider.run"]
 
 
 def test_trace_write_failure_does_not_fail_main_request(tmp_path):
