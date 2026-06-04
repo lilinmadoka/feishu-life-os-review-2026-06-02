@@ -23,6 +23,17 @@ def require_admin_token(x_admin_token: str | None = Header(default=None)) -> Non
         raise HTTPException(status_code=403, detail="invalid admin token")
 
 
+def require_ui_admin_token(
+    x_admin_token: str | None = Header(default=None),
+    admin_token: str | None = Query(default=None),
+) -> None:
+    expected = get_settings().admin_api_token
+    if not expected:
+        raise HTTPException(status_code=503, detail="ADMIN_API_TOKEN is not configured")
+    if (x_admin_token or admin_token) != expected:
+        raise HTTPException(status_code=403, detail="invalid admin token")
+
+
 def _get_detail_or_404(store: SQLiteTraceStore, trace_id: str) -> TraceDetail:
     detail = store.get_trace(trace_id)
     if not detail:
@@ -128,7 +139,7 @@ def get_trace_artifacts(
 
 
 @router.get("/ui", response_class=HTMLResponse)
-def observability_ui(_: None = Depends(require_admin_token)) -> HTMLResponse:
+def observability_ui(_: None = Depends(require_ui_admin_token)) -> HTMLResponse:
     settings = get_settings()
     if not settings.observability_ui_enabled:
         raise HTTPException(status_code=404, detail="observability UI is disabled")

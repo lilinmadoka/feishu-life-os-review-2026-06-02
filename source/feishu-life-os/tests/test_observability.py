@@ -110,12 +110,17 @@ def test_observability_ui_requires_admin_token_and_serves_static_dashboard(monke
     client = configure_app(monkeypatch, tmp_path, enabled=True)
 
     assert client.get("/api/v2/observability/ui").status_code == 403
+    assert client.get("/api/v2/observability/ui?admin_token=wrong").status_code == 403
     response = client.get("/api/v2/observability/ui", headers={"x-admin-token": "admin-token"})
 
     assert response.status_code == 200
     assert "Visual Observability" in response.text
     assert "/api/v2/observability/traces" in response.text
     assert "https://" not in response.text
+
+    query_response = client.get("/api/v2/observability/ui?admin_token=admin-token")
+    assert query_response.status_code == 200
+    assert "Visual Observability" in query_response.text
 
 
 def test_observability_routes_require_admin_token(monkeypatch, tmp_path):
