@@ -89,14 +89,17 @@ class CoreAgentOrchestrator:
             self.trace.update_trace(trace_id, capture_id=capture.id, root_entity_type="capture", root_entity_id=capture.id)
 
             with self.trace.span(trace_id, "context.compile", component="context", lane="context") as context_span:
-                request = self._build_agent_request(capture.model_dump(mode="json"))
+                compiled_context = self.context_compiler.compile(capture.model_dump(mode="json"))
+                request = compiled_context.provider_request(max_bytes=self.context_compiler.max_bytes)
                 context_v2 = request.get("context_v2") if isinstance(request.get("context_v2"), dict) else {}
-                context_span.add_attrs(
-                    {
-                        "context_size_bytes": len(json.dumps(request, ensure_ascii=False, default=str).encode("utf-8")),
-                        "capsule_count": len(context_v2.get("capsules") or []),
-                        "context_schema_version": request.get("context_schema_version"),
-                    }
+                context_summary = self._context_observability_summary(compiled_context, request)
+                context_span.add_attrs(context_summary["attrs"])
+                self.trace.artifact(
+                    trace_id,
+                    kind="context_v2",
+                    label="Context Lens summary",
+                    redaction="summary_only",
+                    payload_json=context_summary["artifact"],
                 )
 
             run = self.store.create_agent_run(
@@ -122,13 +125,28 @@ class CoreAgentOrchestrator:
                             "intent": response.intent,
                             "confidence": response.confidence,
                             "tool_call_count": len(response.tool_calls),
+                            "tool_names": [call.tool_name for call in response.tool_calls],
                             "has_assistant_proposal": response.assistant_proposal is not None,
                         }
+                    )
+                    self.trace.artifact(
+                        trace_id,
+                        kind="provider_output",
+                        label="Provider output summary",
+                        redaction="summary_only",
+                        payload_json=self._provider_output_summary(response),
                     )
                 with self.trace.span(trace_id, "policy.validate_response", component="policy", lane="guard") as policy_span:
                     self.policy.validate_response(response)
                     policy_span.add_attrs({"intent": response.intent, "tool_call_count": len(response.tool_calls)})
+                    self.trace.event(
+                        trace_id,
+                        name="policy.response_validated",
+                        attrs={"intent": response.intent, "tool_names": [call.tool_name for call in response.tool_calls]},
+                    )
             except (CoreAgentProviderUnavailable, CoreAgentProviderError, PolicyViolation) as exc:
+                if isinstance(exc, PolicyViolation):
+                    self.trace.event(trace_id, name="policy.violation", level="warn", message=str(exc))
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 self.store.fail_agent_run(run.id, str(exc), latency_ms)
                 self.store.update_capture_status(capture.id, ProcessedStatus.needs_review)
@@ -166,9 +184,40 @@ class CoreAgentOrchestrator:
                         "proposal_id": planning.proposal_id,
                         "confirmation_id": planning.confirmation_id,
                         "tool_call_count": len(planning.tool_calls),
+                        "tool_names": [call.tool_name for call in planning.tool_calls],
                         "card_sent": planning.card_sent,
                     }
                 )
+                self.trace.artifact(
+                    trace_id,
+                    kind="planner",
+                    label="Planner outcome summary",
+                    redaction="summary_only",
+                    payload_json={
+                        "proposal_id": planning.proposal_id,
+                        "confirmation_id": planning.confirmation_id,
+                        "tool_calls": self._tool_call_summary(planning.tool_calls),
+                        "tool_results": self._tool_result_summary(planning.tool_results),
+                        "reply_text": planning.reply_text,
+                        "card_sent": planning.card_sent,
+                    },
+                )
+                if planning.proposal_id:
+                    self.trace.state_diff(
+                        trace_id,
+                        entity_type="plan_draft",
+                        entity_id=planning.proposal_id,
+                        operation="upsert",
+                        after_summary={"proposal_id": planning.proposal_id, "confirmation_id": planning.confirmation_id},
+                    )
+                if planning.confirmation_id:
+                    self.trace.state_diff(
+                        trace_id,
+                        entity_type="confirmation",
+                        entity_id=planning.confirmation_id,
+                        operation="create",
+                        after_summary={"status": "pending", "card_sent": planning.card_sent},
+                    )
 
             tool_results = list(planning.tool_results)
             tool_reply = planning.reply_text
@@ -193,6 +242,22 @@ class CoreAgentOrchestrator:
                     tool_reply = routed_reply or tool_reply
                     confirmation_id = routed_confirmation_id or confirmation_id
                     router_span.add_attrs({"result_count": len(routed_results), "confirmation_id": routed_confirmation_id})
+                    self.trace.artifact(
+                        trace_id,
+                        kind="tool_results",
+                        label="ToolRouter result summary",
+                        redaction="summary_only",
+                        payload_json={"results": self._tool_result_summary(routed_results), "reply_text": routed_reply},
+                    )
+                    if routed_confirmation_id:
+                        self.trace.state_diff(
+                            trace_id,
+                            entity_type="confirmation",
+                            entity_id=routed_confirmation_id,
+                            operation="create",
+                            after_summary={"status": "pending", "tool_call_count": len(executed_calls)},
+                        )
+                    self._emit_tool_result_state_diffs(trace_id, routed_results)
 
             final_reply = tool_reply or response.reply_to_user or "已收到。"
             with self.trace.span(trace_id, "final_reply.complete_run", component="orchestrator", lane="state") as final_span:
@@ -215,6 +280,18 @@ class CoreAgentOrchestrator:
                         "reply_text": final_reply,
                     }
                 )
+                self.trace.state_diff(
+                    trace_id,
+                    entity_type="agent_run",
+                    entity_id=run.id,
+                    operation="complete",
+                    after_summary={
+                        "status": "done",
+                        "latency_ms": latency_ms,
+                        "tool_call_count": len(executed_calls),
+                        "confirmation_id": confirmation_id,
+                    },
+                )
 
             self._log_runtime(
                 {
@@ -235,7 +312,18 @@ class CoreAgentOrchestrator:
                 trace_id,
                 status="ok",
                 summary=f"{response.intent or 'unknown'} processed",
-                attrs={"capture_id": capture.id, "agent_run_id": run.id, "intent": response.intent},
+                attrs={
+                    "capture_id": capture.id,
+                    "agent_run_id": run.id,
+                    "provider_name": self.provider.name,
+                    "model": getattr(self.provider, "model", None),
+                    "intent": response.intent,
+                    "confidence": response.confidence,
+                    "tool_call_count": len(executed_calls),
+                    "confirmation_id": confirmation_id,
+                    "proposal_id": planning.proposal_id,
+                    "capsule_count": len(context_v2.get("capsules") or []),
+                },
             )
             return OrchestratorResult(
                 capture_id=capture.id,
@@ -249,9 +337,6 @@ class CoreAgentOrchestrator:
             self.trace.end_trace(trace_id, status="failed", summary=str(exc))
             raise
 
-    def _build_agent_request(self, capture: dict[str, Any]) -> dict[str, Any]:
-        return self.context_compiler.compile(capture).provider_request(max_bytes=self.context_compiler.max_bytes)
-
     def _is_fallback_provider(self) -> bool:
         return self.provider.name in {"mock_provider", "rules_provider", "rules_fallback"}
 
@@ -262,5 +347,179 @@ class CoreAgentOrchestrator:
             return "local_agent_message"
         return f"{source}_message" if source else "agent_message"
 
+    def _build_agent_request(self, capture: dict[str, Any]) -> dict[str, Any]:
+        return self.context_compiler.compile(capture).provider_request(max_bytes=self.context_compiler.max_bytes)
+
     def _log_runtime(self, payload: dict[str, Any]) -> None:
         LOGGER.info("agent_runtime %s", json.dumps(payload, ensure_ascii=False, default=str))
+
+    def _context_observability_summary(self, compiled_context: Any, request: dict[str, Any]) -> dict[str, Any]:
+        generated = [capsule.model_dump(mode="json") for capsule in compiled_context.v2_pack.capsules]
+        context_v2 = request.get("context_v2") if isinstance(request.get("context_v2"), dict) else {}
+        rendered = context_v2.get("capsules") if isinstance(context_v2.get("capsules"), list) else []
+        rendered_ids = {str(item.get("capsule_id")) for item in rendered if isinstance(item, dict)}
+        provider_request_bytes = len(json.dumps(request, ensure_ascii=False, default=str).encode("utf-8"))
+        legacy_bytes = len(
+            json.dumps(compiled_context.legacy_pack.model_dump(mode="json"), ensure_ascii=False, default=str).encode("utf-8")
+        )
+        v2_bytes = len(json.dumps(compiled_context.v2_pack.model_dump(mode="json"), ensure_ascii=False, default=str).encode("utf-8"))
+        generated_fact_count = sum(len(item.get("facts") or []) for item in generated if isinstance(item, dict))
+        rendered_fact_count = sum(len(item.get("facts") or []) for item in rendered if isinstance(item, dict))
+        capsules = []
+        for item in generated:
+            capsule_id = str(item.get("capsule_id") or "")
+            rendered_item = next((capsule for capsule in rendered if isinstance(capsule, dict) and capsule.get("capsule_id") == capsule_id), None)
+            facts_total = len(item.get("facts") or [])
+            facts_kept = len(rendered_item.get("facts") or []) if isinstance(rendered_item, dict) else 0
+            capsules.append(
+                {
+                    "capsule_id": capsule_id,
+                    "domain": item.get("domain"),
+                    "generated": True,
+                    "rendered": capsule_id in rendered_ids,
+                    "trimmed": facts_kept < facts_total,
+                    "facts_total": facts_total,
+                    "facts_kept": facts_kept,
+                    "facts_dropped": max(0, facts_total - facts_kept),
+                    "evidence_refs": item.get("evidence_refs") or [],
+                    "relevance_score": item.get("relevance_score"),
+                    "confidence": item.get("confidence"),
+                    "forbidden_actions": item.get("forbidden_actions") or [],
+                    "skip_reason": "" if capsule_id in rendered_ids else "render_policy_or_budget",
+                }
+            )
+        artifact = {
+            "legacy_bytes": legacy_bytes,
+            "context_v2_bytes": v2_bytes,
+            "provider_request_bytes": provider_request_bytes,
+            "render_policy": context_v2.get("context_trace", {}).get("capsule_render_policy", "provider_compact_v1"),
+            "capsules_generated": len(generated),
+            "capsules_rendered": len(rendered),
+            "facts_kept": rendered_fact_count,
+            "facts_dropped": max(0, generated_fact_count - rendered_fact_count),
+            "compressors_run": compiled_context.v2_pack.context_trace.get("compressors", []),
+            "capsules": capsules,
+        }
+        return {
+            "attrs": {
+                "legacy_bytes": legacy_bytes,
+                "context_v2_bytes": v2_bytes,
+                "provider_request_bytes": provider_request_bytes,
+                "context_size_bytes": provider_request_bytes,
+                "capsule_count": len(rendered),
+                "capsules_generated": len(generated),
+                "capsules_rendered": len(rendered),
+                "facts_kept": rendered_fact_count,
+                "facts_dropped": max(0, generated_fact_count - rendered_fact_count),
+                "render_policy": artifact["render_policy"],
+                "context_schema_version": request.get("context_schema_version"),
+            },
+            "artifact": artifact,
+        }
+
+    def _provider_output_summary(self, response: Any) -> dict[str, Any]:
+        return {
+            "intent": response.intent,
+            "confidence": response.confidence,
+            "reply_to_user": response.reply_to_user,
+            "tool_names": [call.tool_name for call in response.tool_calls],
+            "tool_call_count": len(response.tool_calls),
+            "has_assistant_proposal": response.assistant_proposal is not None,
+            "assistant_proposal": self._proposal_summary(response.assistant_proposal) if response.assistant_proposal else None,
+        }
+
+    def _proposal_summary(self, proposal: Any) -> dict[str, Any]:
+        data = proposal.model_dump(mode="json")
+        return {
+            "kind": data.get("kind"),
+            "status": data.get("status"),
+            "missing_info": data.get("missing_info") or [],
+            "candidate_count": len(data.get("candidate_plans") or []),
+            "schedule_preview_count": len(data.get("schedule_preview") or []),
+            "confidence": data.get("confidence"),
+        }
+
+    def _tool_call_summary(self, calls: list[Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "tool_name": call.tool_name,
+                "risk_level": call.risk_level,
+                "requires_confirmation": call.requires_confirmation,
+                "argument_keys": sorted(call.arguments.keys()),
+            }
+            for call in calls
+        ]
+
+    def _tool_result_summary(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        summaries = []
+        for result in results:
+            summaries.append(
+                {
+                    "tool_name": result.get("tool_name"),
+                    "ok": result.get("ok"),
+                    "confirmation_id": result.get("confirmation_id"),
+                    "created": self._created_entities_from_result(result),
+                    "reply_text": result.get("reply_text"),
+                    "error_class": type(result.get("error")).__name__ if result.get("error") else None,
+                }
+            )
+        return summaries
+
+    def _emit_tool_result_state_diffs(self, trace_id: str, results: list[dict[str, Any]]) -> None:
+        for result in results:
+            for entity in self._created_entities_from_result(result):
+                self.trace.state_diff(
+                    trace_id,
+                    entity_type=entity["entity_type"],
+                    entity_id=entity["entity_id"],
+                    operation=entity["operation"],
+                    after_summary=entity["summary"],
+                )
+
+    def _created_entities_from_result(self, result: dict[str, Any]) -> list[dict[str, Any]]:
+        entities: list[dict[str, Any]] = []
+        for key, entity_type in (
+            ("action_item", "action_item"),
+            ("calendar_event", "calendar_event"),
+            ("schedule_block", "schedule_block"),
+            ("plan_draft", "plan_draft"),
+        ):
+            value = result.get(key)
+            if isinstance(value, dict) and value.get("id"):
+                entities.append(
+                    {
+                        "entity_type": entity_type,
+                        "entity_id": str(value["id"]),
+                        "operation": "create_or_update",
+                        "summary": self._entity_summary(value),
+                    }
+                )
+        confirmation_id = result.get("confirmation_id")
+        if confirmation_id:
+            entities.append(
+                {
+                    "entity_type": "confirmation",
+                    "entity_id": str(confirmation_id),
+                    "operation": "create_or_resolve",
+                    "summary": {"confirmation_id": confirmation_id, "status": result.get("status")},
+                }
+            )
+        return entities
+
+    def _entity_summary(self, value: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value.get(key)
+            for key in (
+                "id",
+                "title",
+                "status",
+                "start_at",
+                "end_at",
+                "due_at",
+                "start_time",
+                "end_time",
+                "recurrence_rule",
+                "confidence",
+            )
+            if value.get(key) not in (None, "", [])
+        }

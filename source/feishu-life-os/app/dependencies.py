@@ -145,7 +145,11 @@ def get_trace_emitter() -> TraceEmitter:
     settings = get_settings()
     if not settings.observability_enabled:
         return NullTraceEmitter()
-    return SQLiteTraceEmitter(get_observability_store())
+    return SQLiteTraceEmitter(
+        get_observability_store(),
+        max_artifact_bytes=settings.observability_max_artifact_bytes,
+        capture_full_payload=settings.observability_capture_full_payload,
+    )
 
 
 def get_core_orchestrator() -> CoreAgentOrchestrator:

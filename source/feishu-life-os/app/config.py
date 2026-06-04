@@ -83,8 +83,11 @@ class Settings(BaseSettings):
     attachment_storage_dir: str = Field(default=".data/attachments", alias="ATTACHMENT_STORAGE_DIR")
     vision_attachment_max_bytes: int = Field(default=8 * 1024 * 1024, alias="VISION_ATTACHMENT_MAX_BYTES")
     observability_enabled: bool = Field(default=False, alias="OBSERVABILITY_ENABLED")
+    observability_capture_full_payload: bool = Field(default=False, alias="OBSERVABILITY_CAPTURE_FULL_PAYLOAD")
     observability_retention_days: int = Field(default=14, alias="OBSERVABILITY_RETENTION_DAYS")
     observability_max_artifact_bytes: int = Field(default=12_000, alias="OBSERVABILITY_MAX_ARTIFACT_BYTES")
+    observability_ui_enabled: bool = Field(default=True, alias="OBSERVABILITY_UI_ENABLED")
+    observability_ui_require_admin_token: bool = Field(default=True, alias="OBSERVABILITY_UI_REQUIRE_ADMIN_TOKEN")
 
     @property
     def tzinfo(self) -> ZoneInfo:

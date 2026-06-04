@@ -1,0 +1,392 @@
+:root {
+  color-scheme: dark;
+  --bg: #101214;
+  --panel: #171b1f;
+  --panel-2: #1e2429;
+  --line: #303840;
+  --text: #e8edf0;
+  --muted: #99a5ad;
+  --ok: #4fbf7f;
+  --warn: #d7a64a;
+  --failed: #df6262;
+  --blocked: #c776d9;
+  --skipped: #697783;
+  --accent: #68a7ff;
+  --ingest: #68a7ff;
+  --context: #66c6b2;
+  --model: #d7a64a;
+  --guard: #c776d9;
+  --planner: #9dc76d;
+  --execute: #f08a63;
+  --state: #8e9dff;
+  --external: #b98cdd;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  min-height: 100vh;
+  padding: 18px;
+}
+
+.topbar,
+.workbench,
+.lower-grid,
+.kpi-grid {
+  max-width: 1680px;
+  margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  margin: 0 0 3px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 650;
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 14px;
+}
+
+.token-form {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.token-form label {
+  color: var(--muted);
+}
+
+.token-form input,
+.filters input {
+  min-width: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.token-form button {
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 11px;
+  cursor: pointer;
+}
+
+.status {
+  max-width: 1680px;
+  margin: 12px auto;
+  color: var(--muted);
+}
+
+.status.error {
+  color: var(--failed);
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.kpi {
+  min-height: 58px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 10px;
+}
+
+.kpi .label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.kpi .value {
+  margin-top: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.trace-panel,
+.timeline-panel,
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.filters {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.filters input {
+  width: 100%;
+}
+
+.trace-list {
+  max-height: 620px;
+  overflow: auto;
+}
+
+.trace-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 72px;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.trace-row:hover,
+.trace-row.active {
+  background: var(--panel-2);
+}
+
+.pill {
+  align-self: start;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 7px;
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.pill.ok {
+  color: var(--ok);
+}
+
+.pill.warn {
+  color: var(--warn);
+}
+
+.pill.failed {
+  color: var(--failed);
+}
+
+.pill.blocked {
+  color: var(--blocked);
+}
+
+.row-title,
+.row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-title {
+  font-weight: 600;
+}
+
+.row-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.row-time {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline {
+  min-height: 360px;
+  max-height: 620px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 42px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.lane-name {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.lane-track {
+  position: relative;
+  min-height: 28px;
+  background: #111518;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.span-bar {
+  position: absolute;
+  top: 4px;
+  min-width: 16px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: var(--accent);
+  color: #091014;
+  padding: 1px 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.span-bar.failed,
+.span-bar.blocked,
+.span-bar.warn {
+  color: #101214;
+}
+
+.lower-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.context-lens,
+.artifact-list {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.capsule {
+  display: grid;
+  grid-template-columns: 110px 1fr 90px 90px;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.capsule span,
+.artifact span {
+  color: var(--muted);
+}
+
+.detail-box {
+  margin: 0;
+  min-height: 320px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  color: #d7dde1;
+  background: #0d1012;
+  white-space: pre-wrap;
+}
+
+.artifact {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.artifact code {
+  color: var(--muted);
+}
+
+.trace-graph {
+  display: block;
+  width: 100%;
+  height: 320px;
+  background: #0d1012;
+  border-radius: 0 0 8px 8px;
+}
+
+@media (max-width: 980px) {
+  .topbar,
+  .workbench,
+  .lower-grid,
+  .kpi-grid {
+    display: block;
+  }
+
+  .token-form {
+    grid-template-columns: 1fr;
+    width: 100%;
+    margin-top: 12px;
+  }
+
+  .kpi,
+  .trace-panel,
+  .timeline-panel,
+  .panel {
+    margin-bottom: 12px;
+  }
+}

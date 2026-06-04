@@ -19,14 +19,15 @@ source/feishu-life-os/
 - `app/`: FastAPI application, adapters, routers, services, workers, and core agent runtime.
 - `app/core/planner.py`: `PlannerService` implementation.
 - `app/core/schemas.py`: includes `AssistantProposal` schema.
-- `app/core/orchestrator.py`: provider -> planner -> risk/confirmation/tool execution wiring, plus Phase 1 observability spans.
+- `app/core/orchestrator.py`: provider -> planner -> risk/confirmation/tool execution wiring, plus observability spans and summary artifacts.
 - `app/core/policy.py`: proposal write-safety checks.
 - `app/core/tools.py`: concrete tool execution boundary and planning-only tool rejection.
 - `app/core/providers.py`: proposal-first behavior for complex planning requests.
 - `app/core/context_builder.py`: proposal context summaries.
 - `app/core/context/`: Context Compiler, v2 context schemas, budget trimming, compressors, and provider render policy.
-- `app/core/observability/`: Phase 1 trace schemas, redaction, SQLite store, and no-op/SQLite emitters.
-- `app/routers/observability.py`: read-only trace inspection API guarded by the existing admin-token convention.
+- `app/core/observability/`: trace schemas, hardened redaction, SQLite store, and no-op/SQLite emitters.
+- `app/routers/observability.py`: read-only trace, timeline, graph, artifact, and UI routes guarded by the existing admin-token convention.
+- `app/static/observability/`: no-build static HTML/CSS/JS/SVG dashboard.
 - `app/core/agent_response_schema.json`: structured provider response schema with optional proposal.
 - `tests/`: unit and regression tests, including planning-layer, Context Compiler, and observability coverage.
 - `scripts/`: development, validation, local gateway, and dry-run helper scripts.
@@ -69,16 +70,18 @@ source/feishu-life-os/
 - Added a provider render/policy layer: confirmation capsules are summary-only, plan draft facts are capped, and schedule busy/free facts are exposed only for availability/scheduling contexts.
 - Added relevance gating so schedule availability compression does not run for ordinary confirm or smalltalk messages.
 
-## Visual Observability Phase 1 Changes In This Snapshot
+## Visual Observability Changes In This Snapshot
 
 - Added `docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md` at the review package root.
 - Added `source/feishu-life-os/docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md` for Codex implementation guidance inside the source snapshot.
 - Added trace, span, event, artifact, and state-diff SQLite tables through the existing store migration path.
 - Added no-op default tracing plus an `OBSERVABILITY_ENABLED` SQLite emitter path.
-- Added redaction for sensitive sender/open_id-style identifiers and raw text truncation.
-- Added best-effort CoreAgentOrchestrator spans for capture lookup/create, context compilation, provider execution, policy validation, planner handling, tool execution, and final completion.
-- Added read-only `/api/v2/observability/traces` and `/api/v2/observability/traces/{trace_id}` routes.
-- Added tests for disabled no-op behavior, enabled trace capture, write-failure isolation, route protection, and redaction.
+- Added hardened redaction for sensitive sender/open_id/user_id/union_id-style identifiers, including bare plural ID fields, raw text truncation, and attachment path basename/hash summaries.
+- Added best-effort CoreAgentOrchestrator spans and summary artifacts for context, provider output, planner outcome, tool results, and state diffs.
+- Added read-only `/api/v2/observability/traces`, `/timeline`, `/graph`, `/artifacts`, and `/ui` routes.
+- Added a no-build static dashboard under `app/static/observability/`; no npm build and no external CDN are required.
+- Removed the UI admin-token bypass path; observability routes remain admin-token protected.
+- Added tests for disabled no-op behavior, enabled trace capture, write-failure isolation, route protection, redaction, large/full artifact safeguards, and bad payload hardening.
 
 ## Validation Record
 
@@ -92,11 +95,11 @@ Latest local checks before this export:
 9 passed
 
 .\.venv\Scripts\python.exe -m pytest tests/test_observability.py -q
-5 passed
+8 passed
 
 .\.venv\Scripts\python.exe -m pytest -q
-163 passed
+166 passed
 
-.\.venv\Scripts\python.exe -m ruff check app tests
+.\.venv\Scripts\python.exe -m ruff check .
 All checks passed!
 ```

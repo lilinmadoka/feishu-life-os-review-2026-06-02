@@ -32,7 +32,7 @@ The sanitized project source is under:
 source/feishu-life-os/
 ```
 
-It includes the FastAPI app, core agent runtime, planning layer, Context Compiler, Visual Observability Phase 1 implementation, adapters, routers, workers, scripts, tests, validation summaries, and project metadata needed for review.
+It includes the FastAPI app, core agent runtime, planning layer, Context Compiler, Visual Observability implementation, no-build static dashboard, adapters, routers, workers, scripts, tests, validation summaries, and project metadata needed for review.
 
 It intentionally excludes real environment files, local databases, attachments, screenshots, logs, caches, virtual environments, generated archives, and private runtime data.
 
@@ -45,8 +45,8 @@ It intentionally excludes real environment files, local databases, attachments, 
 - `ToolRouter` is kept to confirmed concrete operations and rejects planning-only direct tools.
 - `ContextCompiler` is implemented as a dual-track v1/v2 context layer with provider-readable capsules.
 - Context capsule rendering applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
-- `Visual Observability` Phase 1 is implemented as a best-effort trace layer with SQLite-backed traces/spans/events/artifacts/state diffs, redaction, no-op default behavior, guarded read-only API routes, and orchestrator instrumentation.
 - The accelerated observability sprint targets a local high-density dashboard, context lens, timeline/graph APIs, replay, state diffs, provider/policy/planner/tool visibility, and coarse Feishu/reminder instrumentation.
+- `Visual Observability` includes a best-effort SQLite trace layer, guarded read-only APIs, no-build static UI, Context Lens artifacts, timeline/graph/artifact endpoints, hardened redaction, and emitter entrypoints that must not fail the main request.
 
 ## Latest Local Validation
 
@@ -55,15 +55,15 @@ Executed in the source workspace before export:
 ```text
 python -m pytest tests/test_observability.py -q
 python -m pytest -q
-python -m ruff check app tests
+python -m ruff check .
 ```
 
 Results:
 
 ```text
-tests/test_observability.py: 5 passed
+tests/test_observability.py: 8 passed
 tests/test_context_compiler.py: 9 passed
 tests/test_core_agent_v2.py: 92 passed
-full pytest suite: 163 passed
-ruff check app tests: passed
+full pytest suite: 166 passed
+ruff check .: passed
 ```

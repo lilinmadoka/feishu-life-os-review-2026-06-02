@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Visual Observability</title>
+    <style>
+/*__OBSERVABILITY_CSS__*/
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Feishu Life OS</p>
+          <h1>Visual Observability</h1>
+        </div>
+        <form id="token-form" class="token-form">
+          <label for="admin-token">Admin token</label>
+          <input id="admin-token" name="admin-token" type="password" autocomplete="off" />
+          <button type="submit">Connect</button>
+          <button id="refresh" type="button">Refresh</button>
+        </form>
+      </header>
+
+      <section id="status" class="status">Waiting for admin token.</section>
+
+      <section class="kpi-grid" id="kpi-strip"></section>
+
+      <section class="workbench">
+        <aside class="trace-panel">
+          <div class="panel-head">
+            <h2>Trace List</h2>
+            <span id="trace-count">0</span>
+          </div>
+          <div class="filters">
+            <input id="filter" type="search" placeholder="Filter workflow, intent, status" />
+          </div>
+          <div id="trace-list" class="trace-list"></div>
+        </aside>
+
+        <section class="timeline-panel">
+          <div class="panel-head">
+            <h2>Multi-lane Timeline</h2>
+            <span id="selected-trace">No trace selected</span>
+          </div>
+          <div id="timeline" class="timeline"></div>
+        </section>
+      </section>
+
+      <section class="lower-grid">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Context Lens</h2>
+            <span id="context-summary">No context artifact</span>
+          </div>
+          <div id="context-lens" class="context-lens"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Span Detail</h2>
+            <span id="detail-summary">Select a span</span>
+          </div>
+          <pre id="span-detail" class="detail-box"></pre>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Artifacts / State</h2>
+            <span id="artifact-summary">0 artifacts</span>
+          </div>
+          <div id="artifact-list" class="artifact-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Trace Graph</h2>
+            <span id="graph-summary">0 nodes</span>
+          </div>
+          <svg id="trace-graph" class="trace-graph" role="img" aria-label="trace graph"></svg>
+        </section>
+      </section>
+    </main>
+    <script>
+//__OBSERVABILITY_JS__
+    </script>
+  </body>
+</html>
