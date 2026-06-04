@@ -21,7 +21,8 @@ E:\learning\...\feishu-life-os
 9. [Review questions](docs/08_REVIEW_QUESTIONS.md)
 10. [Context compiler architecture proposal](docs/09_CONTEXT_COMPILER_ARCHITECTURE.md)
 11. [Visual observability architecture](docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md)
-12. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
+12. [Accelerated visual observability 90% sprint](docs/11_ACCELERATED_VISUAL_OBSERVABILITY_90_SPRINT.md)
+13. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
 
 ## Source Snapshot
 
@@ -45,6 +46,7 @@ It intentionally excludes real environment files, local databases, attachments, 
 - `ContextCompiler` is implemented as a dual-track v1/v2 context layer with provider-readable capsules.
 - Context capsule rendering applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
 - `Visual Observability` Phase 1 is implemented as a best-effort trace layer with SQLite-backed traces/spans/events/artifacts/state diffs, redaction, no-op default behavior, guarded read-only API routes, and orchestrator instrumentation.
+- The accelerated observability sprint targets a local high-density dashboard, context lens, timeline/graph APIs, replay, state diffs, provider/policy/planner/tool visibility, and coarse Feishu/reminder instrumentation.
 
 ## Latest Local Validation
 
