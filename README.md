@@ -23,7 +23,8 @@ E:\learning\...\feishu-life-os
 11. [Visual observability architecture](docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md)
 12. [Accelerated visual observability 90% sprint](docs/11_ACCELERATED_VISUAL_OBSERVABILITY_90_SPRINT.md)
 13. [Model-first architecture gap analysis](docs/12_MODEL_FIRST_ARCHITECTURE_GAP_ANALYSIS.md)
-14. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
+14. [Model-first runtime redesign plan](docs/13_MODEL_FIRST_RUNTIME_REDESIGN.md)
+15. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
 
 ## Source Snapshot
 
@@ -55,7 +56,9 @@ A 2026-06-05 review memo has been added: [Model-first architecture gap analysis]
 
 The main concern is that the intended model-first design is not yet enforced. `Provider`, `PlannerService`, and legacy planning paths can still interpret user natural language after the model has produced a response. This can make the assistant feel rigid and rule-driven, especially around active `PlanDraft` follow-ups.
 
-Please review this memo before proposing implementation changes. The question is how to enforce a single semantic authority while preserving confirmation safety, deterministic schedule calculation, and the existing RiskPolicy boundary.
+A follow-up redesign plan has been added: [Model-first runtime redesign plan](docs/13_MODEL_FIRST_RUNTIME_REDESIGN.md). It proposes `AssistantDecision`, `DecisionPolicy`, `PlannerRuntime`, `ConfirmationBoundary`, and `ToolExecutor` as the target runtime boundary.
+
+Please review these two memos before proposing implementation changes. The question is how to enforce a single semantic authority while preserving confirmation safety, deterministic schedule calculation, and the existing RiskPolicy boundary.
 
 ## Latest Local Validation
 
