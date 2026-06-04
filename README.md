@@ -22,7 +22,8 @@ E:\learning\...\feishu-life-os
 10. [Context compiler architecture proposal](docs/09_CONTEXT_COMPILER_ARCHITECTURE.md)
 11. [Visual observability architecture](docs/10_VISUAL_OBSERVABILITY_ARCHITECTURE.md)
 12. [Accelerated visual observability 90% sprint](docs/11_ACCELERATED_VISUAL_OBSERVABILITY_90_SPRINT.md)
-13. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
+13. [Model-first architecture gap analysis](docs/12_MODEL_FIRST_ARCHITECTURE_GAP_ANALYSIS.md)
+14. [Sanitized source export manifest](SOURCE_EXPORT_MANIFEST.md)
 
 ## Source Snapshot
 
@@ -47,6 +48,14 @@ It intentionally excludes real environment files, local databases, attachments, 
 - Context capsule rendering applies provider policy: confirmation capsules are summary-only, plan drafts expose only compact draft facts, and schedule busy/free facts are gated to availability or scheduling contexts.
 - The accelerated observability sprint targets a local high-density dashboard, context lens, timeline/graph APIs, replay, state diffs, provider/policy/planner/tool visibility, and coarse Feishu/reminder instrumentation.
 - `Visual Observability` includes a best-effort SQLite trace layer, guarded read-only APIs, no-build static UI, Context Lens artifacts, timeline/graph/artifact endpoints, hardened redaction, and emitter entrypoints that must not fail the main request.
+
+## Current Architecture Concern
+
+A 2026-06-05 review memo has been added: [Model-first architecture gap analysis](docs/12_MODEL_FIRST_ARCHITECTURE_GAP_ANALYSIS.md).
+
+The main concern is that the intended model-first design is not yet enforced. `Provider`, `PlannerService`, and legacy planning paths can still interpret user natural language after the model has produced a response. This can make the assistant feel rigid and rule-driven, especially around active `PlanDraft` follow-ups.
+
+Please review this memo before proposing implementation changes. The question is how to enforce a single semantic authority while preserving confirmation safety, deterministic schedule calculation, and the existing RiskPolicy boundary.
 
 ## Latest Local Validation
 

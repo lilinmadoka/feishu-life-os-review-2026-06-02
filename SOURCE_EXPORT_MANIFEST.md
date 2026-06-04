@@ -1,6 +1,6 @@
 # Sanitized Source Export Manifest
 
-Export date: 2026-06-04
+Export date: 2026-06-05
 
 Local source root:
 
@@ -82,6 +82,15 @@ source/feishu-life-os/
 - Added a no-build static dashboard under `app/static/observability/`; no npm build and no external CDN are required.
 - Removed the UI admin-token bypass path; observability routes remain admin-token protected.
 - Added tests for disabled no-op behavior, enabled trace capture, write-failure isolation, route protection, redaction, large/full artifact safeguards, and bad payload hardening.
+
+## Architecture Review Memo Added On 2026-06-05
+
+- Added `docs/12_MODEL_FIRST_ARCHITECTURE_GAP_ANALYSIS.md`.
+- This memo records an observed model-first architecture gap without changing business code.
+- The memo highlights that `Provider`, `PlannerService`, and legacy planning paths can still interpret user natural language after model output.
+- The memo asks reviewers to evaluate how to enforce a single semantic authority while keeping confirmation cards, RiskPolicy, deterministic planning calculations, and ToolRouter execution boundaries intact.
+
+No source snapshot refresh was performed for this memo-only update.
 
 ## Validation Record
 
